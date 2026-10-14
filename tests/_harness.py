@@ -20,6 +20,9 @@ ARCH_SCRIPTS = REPO_ROOT / "skills" / "agent-harness-architect" / "scripts"
 WIKI_SCRIPTS = REPO_ROOT / "skills" / "wiki-creator" / "scripts"
 PKG_KNOWLEDGE = REPO_ROOT / "skills" / "agent-harness-architect" / "references" / "knowledge"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+DESIGN_TEMPLATE = (
+    REPO_ROOT / "skills" / "agent-harness-architect" / "assets" / "design-doc.md"
+)
 
 PY = sys.executable
 
