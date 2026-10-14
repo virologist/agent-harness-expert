@@ -3,8 +3,25 @@
 
 只报"缺什么"，不判断"该不该缺"——要不要补由 LLM/架构师决定。
 
+退出码语义（默认即严格，门禁不做"假绿"）：
+    0  无缺失项；或显式 --lenient（有问题也放行，仅作提示）
+    1  存在任一缺失项（默认行为，无需加参数）
+    --strict 保留为向后兼容开关，当前等同于默认行为。
+
+检查面：
+    1. 15 个必需章节
+    2. 9 个生产级必答项关键词 + §13 结论列是否真填
+    3. 设计台账行
+    4. 未填占位符 <...>
+    5. H 框架六层必答设计问题覆盖 X/43（见 QUESTION_KEYWORDS）
+
+**43 问覆盖是"结构完整性启发式"，不是语义判断**：脚本只报"文档里没提到这个词"，
+不报"答得好不好"。按本包「三件事分工宪法」，语义质量判定（答案是否成立、
+是否自洽）归 LLM/架构师，脚本只做它能确定的字符串层面检查。
+
 用法:
     python3 check_design_doc.py designs/支付助手-harness-design-v1.md
+    python3 check_design_doc.py designs/xxx.md --lenient   # 只提示，不卡门禁
 """
 import argparse
 import re
@@ -30,6 +47,100 @@ GATE_POINTER = "类型完整 / API 真实 / 标准可达（唯一定义处：ref
 
 # §13 生产级必答项的编号行，检测「表还在但结论列全空」这种结构性缺失
 _ANSWER_ROW = re.compile(r"^\|\s*(\d+)\s*\|([^|]*)\|([^|]*)\|")
+
+# ---------------------------------------------------------------------------
+# H 框架六层必答设计问题（43 问）→ 可检测关键词
+#
+# 权威源：references/h-framework.md「二、六层详解」每层的「必答设计问题」列表。
+# 分布：E 9 / T 7 / C 8 / S 6 / L 6 / V 7 = 43 问。
+#   （总定义节的「模型组合」6 问不在此表——它们由 §5 模型组合与任务分派章节承载，
+#     归 MUST_ANSWER 的"模型组合"与 HEADINGS 检查，避免同一问两处计数。）
+#
+# 每条 = (编号, 人类可读标签, [关键词...])；关键词命中**其一**即视为该问已覆盖。
+# 匹配在 _strip_fenced() 去围栏后的正文上做，大小写不敏感。
+#
+# 【这是启发式，不是语义判定】关键词取每问里最不可替代的术语；脚本只能证明
+# "文档提到了这个概念"，无法证明"这个概念被答对了"。后者归 LLM（三件事分工宪法）。
+# ---------------------------------------------------------------------------
+QUESTION_KEYWORDS: dict[str, list] = {
+    "E": [
+        ("E1", "终止条件归属", ["终止条件"]),
+        ("E2", "防跑飞三保险", ["轮次上限", "token 预算", "每节点超时"]),
+        ("E3", "静态模式 vs 动态脚本", ["静态模式", "动态脚本"]),
+        ("E4", "失败回喂", ["回喂", "分类恢复"]),
+        ("E5", "打转检测", ["打转", "参数指纹"]),
+        ("E6", "循环内分档", ["档位", "分派"]),
+        ("E7", "策略选择器", ["策略选择器"]),
+        ("E8", "墙钟预算与并行", ["墙钟", "并行"]),
+        ("E9", "流式与可中断", ["流式", "可中断"]),
+    ],
+    "T": [
+        ("T1", "工具接入与接口标准化", ["工具接入", "接入方式", "接口标准化"]),
+        ("T2", "按需筛选子集", ["按需筛选", "工具子集"]),
+        ("T3", "工具执行位置", ["执行环境", "沙箱"]),
+        ("T4", "凭证不进执行环境", ["凭证"]),
+        ("T5", "注册≠披露≠授权", ["披露", "执行授权"]),
+        ("T6", "模型组件接入形态", ["接入形态", "降级链"]),
+        ("T7", "披露序列稳定", ["披露序列", "披露顺序"]),
+    ],
+    "C": [
+        ("C1", "窗口预算分配", ["窗口预算", "预算分配"]),
+        ("C2", "压缩与摘要时机", ["压缩", "摘要"]),
+        ("C3", "噪音下沉", ["噪音下沉", "干净上下文"]),
+        ("C4", "每轮重新组装", ["重新组装", "组装策略"]),
+        ("C5", "外部内容消毒", ["消毒"]),
+        ("C6", "决策型模型 state 复用", ["state", "复用"]),
+        ("C7", "前缀稳定", ["前缀稳定", "稳定前缀"]),
+        ("C8", "重写失效预算", ["失效预算", "重写"]),
+    ],
+    "S": [
+        ("S1", "存储结构与写入治理", ["存储结构", "状态结构"]),
+        ("S2", "失败后重新加载", ["重新加载", "可恢复"]),
+        ("S3", "并发写", ["并发写", "wal", "连接池"]),
+        ("S4", "外部副作用幂等", ["幂等"]),
+        ("S5", "记忆治理", ["记忆治理"]),
+        ("S6", "证据版本绑定", ["版本绑定"]),
+    ],
+    "L": [
+        ("L1", "拦截点", ["拦截"]),
+        ("L2", "拦截不可绕过", ["绕过"]),
+        ("L3", "鉴权协议", ["jwt", "sso", "oidc", "鉴权协议"]),
+        ("L4", "人在回路四档", ["人在回路"]),
+        ("L5", "高危纵深防御", ["纵深"]),
+        ("L6", "快筛阈值与放行率", ["放行率", "阈值"]),
+    ],
+    "V": [
+        ("V1", "独立验证", ["独立验证"]),
+        ("V2", "可量化可复现", ["可量化", "可复现"]),
+        ("V3", "评估者分离", ["评估者分离", "独立上下文"]),
+        ("V4", "显式标准与迭代预算", ["迭代预算"]),
+        ("V5", "回执≠业务事实", ["回执", "业务事实"]),
+        ("V6", "评测环境可比", ["评测环境", "可比", "绕过任务"]),
+        ("V7", "验证强度阶梯", ["验证强度", "强度阶梯"]),
+    ],
+}
+
+# 缺失清单最多列多少条（防刷屏）
+MAX_UNCOVERED_SHOWN = 15
+
+
+def total_questions() -> int:
+    return sum(len(v) for v in QUESTION_KEYWORDS.values())
+
+
+def find_uncovered(body: str) -> list:
+    """返回六层必答问题里「正文未提到任何关键词」的问题编号。
+
+    只判**有没有提到**（结构完整性），不判**答得好不好**（语义质量）。
+    后者按三件事分工宪法归 LLM，脚本不做规则匹配。
+    """
+    low = body.lower()
+    uncovered = []
+    for _layer, questions in QUESTION_KEYWORDS.items():
+        for qid, label, keywords in questions:
+            if not any(k.lower() in low for k in keywords):
+                uncovered.append(f"{qid} {label}")
+    return uncovered
 
 
 # 已被文档规范占用的合法记号：出现这些形态时不算"未填占位符"
@@ -122,16 +233,22 @@ def check(path: Path) -> tuple:
     body = _strip_fenced(text)
     placeholders = find_placeholders(body)
     unanswered = find_unanswered(body)
-    return missing_h, missing_m, has_ledger, unanswered, placeholders
+    uncovered = find_uncovered(body)
+    return missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="设计文档结构自检")
+    ap = argparse.ArgumentParser(description="设计文档结构自检（默认严格：有缺失即退出码 1）")
     ap.add_argument("doc", help="设计文档路径")
-    ap.add_argument("--strict", action="store_true", help="存在任一项缺失即以退出码 1 结束")
+    ap.add_argument("--strict", action="store_true",
+                    help="存在任一项缺失即以退出码 1 结束（向后兼容；当前等同默认行为）")
+    ap.add_argument("--lenient", action="store_true",
+                    help="宽松模式：存在缺失项也返回 0，仅作提示不卡门禁")
     args = ap.parse_args()
 
-    missing_h, missing_m, has_ledger, unanswered, placeholders = check(Path(args.doc).expanduser().resolve())
+    missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered = check(
+        Path(args.doc).expanduser().resolve()
+    )
 
     print(f"检查对象: {Path(args.doc).resolve()}")
     print(f"  章节齐全度: {len(HEADINGS) - len(missing_h)}/{len(HEADINGS)}")
@@ -150,13 +267,28 @@ def main() -> int:
     # 去重保序，最多列 10 个，避免刷屏
     uniq = list(dict.fromkeys(placeholders))
     print(f"  未填占位符 <...>: {'有，需补写 ' + str(len(uniq)) + ' 处 → ' + ', '.join(uniq[:10]) if uniq else '无'}")
+    total = total_questions()
+    print(f"  六层必答问题覆盖: {total - len(uncovered)}/{total}")
+    if uncovered:
+        shown = ", ".join(uncovered[:MAX_UNCOVERED_SHOWN])
+        more = f" …等共 {len(uncovered)} 项" if len(uncovered) > MAX_UNCOVERED_SHOWN else ""
+        print(f"    未覆盖: {shown}{more}")
     print(f"  语义项（脚本不判，需你自查）: {GATE_POINTER}")
 
-    problems = bool(missing_h or missing_m or unanswered or not has_ledger)
-    if problems and args.strict:
-        return 1
-    print("结论: " + ("存在缺失项，需人工判断是否补齐" if problems else "结构完整"))
-    return 0
+    problems = bool(
+        missing_h or missing_m or unanswered or not has_ledger or uncovered
+    )
+    if not problems:
+        print("结论: 结构完整")
+        return 0
+    print("结论: 存在缺失项，需人工判断是否补齐")
+    if args.lenient:
+        if args.strict:
+            print("（同时给了 --strict 与 --lenient：以 --lenient 为准，退出码 0）")
+        else:
+            print("（--lenient：已按宽松模式放行，退出码 0；门禁须去掉本参数）")
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

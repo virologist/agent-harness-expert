@@ -10,9 +10,15 @@
     name, group, count, added, confidence
     且每个 ### 小节须含: 核心思想 / 可迁移到 / 案例 / 何时不用 / 对照问题
 
+退出码语义（默认即严格，门禁不做"假绿"）：
+    0  无问题；或显式 --lenient（有问题也放行，仅作提示）
+    1  存在任一问题（默认行为，无需加参数）
+    --strict 保留为向后兼容开关，当前等同于默认行为。
+
 用法:
     python3 lint_knowledge.py references/knowledge
     python3 lint_knowledge.py references/knowledge/frameworks/core/claude-code.md
+    python3 lint_knowledge.py references/knowledge --lenient   # 只提示，不卡门禁
 """
 from __future__ import annotations
 
@@ -109,9 +115,12 @@ def lint_file(path: Path, root: Path | None = None) -> list:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="知识条目结构校验")
+    ap = argparse.ArgumentParser(description="知识条目结构校验（默认严格：有问题即退出码 1）")
     ap.add_argument("target", help="知识库目录或单个条目文件")
-    ap.add_argument("--strict", action="store_true", help="存在任一问题即以退出码 1 结束")
+    ap.add_argument("--strict", action="store_true",
+                    help="存在任一问题即以退出码 1 结束（向后兼容；当前等同默认行为）")
+    ap.add_argument("--lenient", action="store_true",
+                    help="宽松模式：存在问题也返回 0，仅作提示不卡门禁")
     args = ap.parse_args()
 
     target = Path(args.target).expanduser().resolve()
@@ -139,9 +148,16 @@ def main() -> int:
             print(f"[OK]   {rel}")
 
     print(f"\n共 {len(files)} 个条目，{total} 个问题")
-    if total and args.strict:
-        return 1
-    return 0
+    if total == 0:
+        return 0
+    print("结论: 存在问题，需补齐上表列出的字段 / 小节")
+    if args.lenient:
+        if args.strict:
+            print("（同时给了 --strict 与 --lenient：以 --lenient 为准，退出码 0）")
+        else:
+            print("（--lenient：已按宽松模式放行，退出码 0；门禁须去掉本参数）")
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
