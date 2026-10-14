@@ -1,0 +1,147 @@
+{
+  "name": "agent-harness-expert",
+  "version": "1.5.2",
+  "description": "An engineering team that manages agent R&D with a lightweight fast track and a four-stage pipeline (research, design, code, test), based on the universal H=(E,T,C,S,L,V)+P framework, with deterministic SDK checks, delivery guidance and project knowledge management.",
+  "author": {
+    "name": "hanli",
+    "email": "hanli@example.com"
+  },
+  "agents": [
+    "./agents/agent-harness-expert-team-lead.md",
+    "./agents/agent-harness-researcher.md",
+    "./agents/agent-harness-architect.md",
+    "./agents/agent-harness-coder.md",
+    "./agents/agent-harness-tester.md"
+  ],
+  "skills": [
+    "./skills/agentic-ai-research",
+    "./skills/agent-harness-architect",
+    "./skills/coding-prompt",
+    "./skills/wiki-creator"
+  ],
+  "expertType": "team",
+  "agentName": "agent-harness-expert-team-lead",
+  "teamInfo": {
+    "leadAgent": "agent-harness-expert-team-lead",
+    "memberAgents": [
+      "agent-harness-researcher",
+      "agent-harness-architect",
+      "agent-harness-coder",
+      "agent-harness-tester"
+    ]
+  },
+  "displayName": {
+    "en": "Agent Harness",
+    "zh": "Agent Harness 专家团"
+  },
+  "profession": {
+    "en": "Agent Harness Full-Stack R&D Team",
+    "zh": "[Agent Harness] 全流程研发专家团"
+  },
+  "displayDescription": {
+    "en": "An engineering team that runs a lightweight fast track or a four-stage agent R&D pipeline (research, design, code, test) with deterministic SDK checks, delivery guidance, and project knowledge management.",
+    "zh": "Agent 工程研发团队：轻量快速通道与四阶段流水线，含 SDK 确定性校验与部署引导。"
+  },
+  "avatar": "avatars/team.png",
+  "categoryId": "02-Engineering",
+  "defaultInitPrompt": {
+    "zh": "帮我把一个想法做成可落地的 agent",
+    "en": "Turn my idea into a deployable agent"
+  },
+  "plugin": "agent-harness-expert",
+  "tags": [
+    {
+      "en": "Agent Architecture",
+      "zh": "Agent 架构"
+    },
+    {
+      "en": "AI Engineering",
+      "zh": "AI 工程"
+    },
+    {
+      "en": "Knowledge Base",
+      "zh": "知识底座"
+    }
+  ],
+  "quickPrompts": [
+    {
+      "en": "Turn my idea into a deployable agent",
+      "zh": "帮我把一个想法做成可落地的 agent"
+    },
+    {
+      "en": "Design an agent harness architecture",
+      "zh": "帮我设计一个 Agent Harness 架构"
+    },
+    {
+      "en": "Survey the latest agentic AI progress and compile a research brief",
+      "zh": "调研 Agentic AI 最新进展并整理研究简报"
+    }
+  ],
+  "members": [
+    {
+      "id": "agent-harness-expert-team-lead",
+      "name": {
+        "en": "Chen Hengyu",
+        "zh": "陈衡宇"
+      },
+      "profession": {
+        "en": "Orchestrator",
+        "zh": "编排指挥"
+      },
+      "avatar": "avatars/agent-harness-expert-team-lead.png",
+      "role": "lead"
+    },
+    {
+      "id": "agent-harness-researcher",
+      "name": {
+        "en": "Su Yuewen",
+        "zh": "苏阅文"
+      },
+      "profession": {
+        "en": "Agentic AI Researcher",
+        "zh": "Agentic AI 研究员"
+      },
+      "avatar": "avatars/agent-harness-researcher.png",
+      "role": "member"
+    },
+    {
+      "id": "agent-harness-architect",
+      "name": {
+        "en": "Liang Gouyuan",
+        "zh": "梁构远"
+      },
+      "profession": {
+        "en": "Agent Harness Architect",
+        "zh": "Agent Harness 架构师"
+      },
+      "avatar": "avatars/agent-harness-architect.png",
+      "role": "member"
+    },
+    {
+      "id": "agent-harness-coder",
+      "name": {
+        "en": "Cheng Yihang",
+        "zh": "程一行"
+      },
+      "profession": {
+        "en": "AI Coding Engineer",
+        "zh": "AI 编码工程师"
+      },
+      "avatar": "avatars/agent-harness-coder.png",
+      "role": "member"
+    },
+    {
+      "id": "agent-harness-tester",
+      "name": {
+        "en": "Yan Yanzhen",
+        "zh": "严验真"
+      },
+      "profession": {
+        "en": "Agent Test Engineer",
+        "zh": "Agent 测试工程师"
+      },
+      "avatar": "avatars/agent-harness-tester.png",
+      "role": "member"
+    }
+  ]
+}
