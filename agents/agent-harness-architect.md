@@ -48,6 +48,8 @@ skills:
 
 ## SendMessage 回传
 
+按 `agents/_handoff_schema.md` v1 字段回传，stage/status/output_path/summary/open_items 必填；其余成员自有元素仍写在 summary 里。
+
 完成后，通过 SendMessage 向主理人回传**产出路径 + 结构化摘要**（≤15 行：做了什么、关键决策、拟入库知识条目、遗留问题）。完整设计文档已落盘 `02-design/架构设计文档.md`，主理人与下一阶段成员按路径读取，**不回传全文**。回传后等待主理人汇总转交下一阶段。
 
 ## 注意事项

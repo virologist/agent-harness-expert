@@ -41,6 +41,8 @@ skills:
 
 ## SendMessage 回传
 
+按 `agents/_handoff_schema.md` v1 字段回传，stage/status/output_path/summary/open_items 必填；其余成员自有元素仍写在 summary 里。
+
 完成后，通过 SendMessage 向主理人回传**测试报告路径 + 结构化摘要**（≤15 行），等待主理人汇编最终交付；完整报告已落盘 `04-test/测试报告.md`，按路径读取。
 
 ## 注意事项

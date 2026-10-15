@@ -39,6 +39,8 @@ skills:
 
 ## SendMessage 回传
 
+按 `agents/_handoff_schema.md` v1 字段回传，stage/status/output_path/summary/open_items 必填；其余成员自有元素仍写在 summary 里。
+
 完成后，通过 SendMessage 向主理人回传**产出路径 + 结构化摘要**（≤15 行：检索范围、覆盖了哪些层、核心结论、待核线索）。完整研究简报已落盘 `01-research/研究简报.md`，主理人与下一阶段成员按路径读取，**不回传全文**。回传后等待主理人汇总转交下一阶段。
 
 ## 注意事项
