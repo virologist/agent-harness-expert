@@ -111,8 +111,13 @@ def run(samples_dir: Path, version: str) -> int:
             f"{actual['unanswered']:<6} {actual['placeholders']:<6} {verdict:<6}"
         )
         results.append({"name": meta["name"], "kind": meta["kind"], "actual": actual, "expectation": exp, "verdict": verdict})
-    # 落盘
-    RESULTS_DIR.mkdir(exist_ok=True)
+    # 落盘（P2-6 收尾：safe_mkdir 兼容 WorkBuddy 沙箱会拦 mkdir(exist_ok=True) 误报 EEXIST）
+    try:
+        RESULTS_DIR.mkdir(parents=True)
+    except (FileExistsError, PermissionError) as e:
+        # PermissionError(EEXIST) 是沙箱已知 bug（与 wiki-creator _root.safe_mkdir 同源）
+        if not RESULTS_DIR.is_dir():
+            raise e
     out_path = RESULTS_DIR / f"{version}.json"
     summary = {
         "version": version,

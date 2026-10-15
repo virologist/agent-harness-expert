@@ -1,0 +1,133 @@
+{
+  "version": "1.6.0-post",
+  "total_questions": 0,
+  "samples": [
+    {
+      "name": "design_boundary_headings_only",
+      "kind": "boundary",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_empty_conclusions",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 8
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_from_template",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 0,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 0,
+        "min_43q_coverage": 43,
+        "max_unanswered": 0,
+        "max_placeholders": 0
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_full",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 0,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 0,
+        "min_43q_coverage": 43,
+        "max_unanswered": 0,
+        "max_placeholders": 0
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_headings_only",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_missing_sections",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_placeholder",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 22,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    }
+  ],
+  "all_pass": true
+}
