@@ -1,10 +1,52 @@
 # Agent Harness 全流程研发专家团
 
+> **版本**：v1.7.1（30 commit / 131 文件 / pytest 78/78 / evals 14/14 / validate 0 errors）
+> **三源部署**：my-experts HEAD + GitHub push + OneDrive 镜像
+> **v1.1 报告 29 项短板 100% 处置**——含跳过 2 项的转化落地（详见 `outputs/agent-harness-expert-全面诊断报告-v1.2.md`）
+> **跨包元教训**：9 条 ML-1 ~ ML-9 见 `evals/META_LESSONS.md`
+
 把用户的一个想法、或某个领域的最新研究，编排成**可落地的 agent**。基于通用框架 **H=(E,T,C,S,L,V)+P**（Harness = 六层功能 + 架构范式 P；层定义详解见包内 `skills/agent-harness-architect/references/h-framework.md`），由主理人编排四名专职成员协作完成，并沉淀进自进化知识底座。
 
 ## 类型
 
 Team 型（多角色协作团队）
+
+## 三道门禁
+
+- **pytest**：78/78 通过（v1.5.2 baseline 0）
+- **evals benchmark**：14/14 PASS（7 fixtures + 6 generated + 1 real sample）
+- **validate_expert**：0 errors（v1.5.2 baseline 3 errors）
+
+## 门禁使用
+
+```bash
+# 跑全部 pytest
+python3 -m pytest tests/ -q
+
+# 跑 evals benchmark（门禁）
+python3 evals/run_benchmark.py --version "1.7.0"
+
+# 重生成 6 个 generated 样本（关键词与门禁同源）
+python3 evals/generate_samples.py
+```
+
+## 跨包元教训（9 条）
+
+详见 `evals/META_LESSONS.md`——9 条 ML 跨包可复用教训，评审任何 Team 型专家包时引用。
+
+## 关键 commit 索引
+
+| 范围 | commit | 摘要 |
+|---|---|---|
+| 规范 | `6052a9e` | profession 对齐 + settings.json |
+| 门禁 | `98887be` / `de246e2` | 退出码反转 + 43 问覆盖 + 加固 |
+| 门禁 | `e00d920` | MUST_ANSWER 限域到 §4.1-§4.6 |
+| 协作 | `79def5c` | 撞限协议下沉四成员 |
+| 协作 | `8a6e81c` | 回传信封 schema 化 |
+| 状态 | `c562da3` | 断点状态机显式化 |
+| 工具 | `2a58eed` | Mode 2 告警落 `<项目>/.harness-kb/mode2-log.md` |
+| 真实样本 | `aca043f` | viral-evo-lab P4_monitoring_design.md（127 行真实设计） |
+| 路线图 | `361e738` / `aca043f` | v1.6.0 + v1.7.1 |
 
 ## 团队成员
 
