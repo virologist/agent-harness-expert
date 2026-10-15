@@ -41,10 +41,53 @@ HEADINGS = [
 ]
 
 # 生产级必答项（与 assets/design-doc.md §13 一致）+ 模型组合（§5）
+# P3-1 加固：每条 MUST_ANSWER 项**限域到对应层号 §4.N 段**——除了"模型组合"跨层
+# 归 §5 不限域外，其余 8 项必须出现在对应 §4.N 段才算覆盖。这是 P0-3c 收紧 43 问
+# 限域的延伸：让 MUST_ANSWER 与 §4.1-§4.6 限域精神保持一致（关键词只在限域段算覆盖），
+# 防止"在 §13 表格或 §0 概述里列一遍就 9/9 满分"的假绿。
+#
+# - MUST_ANSWER_LAYERS：label → 层号（None 表示不限域）
+#   必须依据：references/h-framework.md 的 43 问归层 → 对应 §4.N
+#     执行环境 → T（T3 工具执行位置）
+#     错误回喂 → E（E4 失败回喂）
+#     打转检测 → E（E5 打转检测）
+#     记忆治理 → S（S5 记忆治理）
+#     幂等      → S（S4 外部副作用幂等）
+#     版本绑定  → S（S6 证据版本绑定）
+#     评估者分离 → V（V3 评估者分离）
+#     模型组合   → None（跨 E/T/C 三档，由 §5 模型组合与任务分派承载，限域意义不大）
+#     前缀稳定  → C（C7 前缀稳定）
+#
+# - MUST_ANSWER_KEYWORDS：label → 限域段内允许命中的关键词列表（任一命中即覆盖）。
+#   "错误回喂"给出 ["回喂", "失败回喂", "错误回喂"] 是因为 §4.1 E 段最自然的写法
+#   是「失败回喂：错误作为观察结果回到上下文」——"错误回喂"作为整词往往只在 §13
+#   表格里出现，但 §4.1 正文里命中"回喂"或"失败回喂"已足够语义覆盖。
 MUST_ANSWER = [
     "执行环境", "错误回喂", "打转检测", "记忆治理", "幂等", "版本绑定", "评估者分离",
     "模型组合", "前缀稳定",
 ]
+MUST_ANSWER_LAYERS: dict[str, str | None] = {
+    "执行环境": "T",
+    "错误回喂": "E",
+    "打转检测": "E",
+    "记忆治理": "S",
+    "幂等": "S",
+    "版本绑定": "S",
+    "评估者分离": "V",
+    "模型组合": None,  # 跨 E/T/C 三档，不限域（§5 承载）
+    "前缀稳定": "C",
+}
+MUST_ANSWER_KEYWORDS: dict[str, list[str]] = {
+    "执行环境": ["执行环境"],
+    "错误回喂": ["回喂", "失败回喂", "错误回喂"],
+    "打转检测": ["打转检测"],
+    "记忆治理": ["记忆治理"],
+    "幂等": ["幂等"],
+    "版本绑定": ["版本绑定"],
+    "评估者分离": ["评估者分离"],
+    "模型组合": ["模型组合"],
+    "前缀稳定": ["前缀稳定"],
+}
 
 # 「可编码三门槛」（类型完整 / API 真实 / 标准可达）的唯一定义处是
 # references/production-checklist.md。三门槛判定的是**内容质量**（类型有没有定义、
@@ -246,6 +289,49 @@ def find_uncovered(body: str) -> tuple:
     return uncovered, structural
 
 
+def find_missing_must_answer(text: str, body: str, sections: dict) -> tuple[list[str], list[str]]:
+    """P3-1 加固：MUST_ANSWER 每条按 MUST_ANSWER_LAYERS 限域到对应 §4.N 段。
+
+    返回 (missing_labels, structural_msgs)：
+      - missing_labels：限域段存在但段内未找到任一关键词 / 限域段缺失且全文未找到
+        任一关键词 的 label 列表；
+      - structural_msgs：限域段缺失时退回全文档匹配的结构性提示（不阻断，
+        只报缺指针——这是 v1.6.0 已知的"§4.4 S 段被吞"的过渡态）。
+
+    限域规则与例外（与 43 问门禁同精神）：
+      - 有限域段 → 关键词必须在该 §4.N 段内命中（任一关键词命中即覆盖）；
+      - 限域段缺失 → 退回全文档匹配并报结构性问题（不静默全文档化）；
+      - 「模型组合」层号 None → 始终全文档匹配（跨 E/T/C，限域意义不大）。
+
+    【这是结构面启发式】关键词命中只证明"该层提到了这个概念"，
+    不能证明"答得好不好"。后者归 LLM（三件事分工宪法）。
+    """
+    missing: list[str] = []
+    structural: list[str] = []
+    for label, kws in MUST_ANSWER_KEYWORDS.items():
+        layer = MUST_ANSWER_LAYERS.get(label)
+        if layer is None:
+            # 跨层不限域（如"模型组合"归 §5），全文档匹配
+            pool = body
+            tag = "全文档"
+        else:
+            num = LAYER_SECTION[layer]
+            # 先固定 tag，再决定 pool——避免限域段缺失分支先于结构面段写 f-string
+            tag = f"§4.{num}（{layer} 层）"
+            if num in sections:
+                pool = sections[num]
+            else:
+                # 限域段缺失 → 退回全文档匹配并报结构性问题
+                structural.append(
+                    f"MUST_ANSWER「{label}」所属 {tag} 段落缺失，"
+                    f"已退回全文档匹配"
+                )
+                pool = body
+        if not any(kw in pool for kw in kws):
+            missing.append(label)
+    return missing, structural
+
+
 # 已被文档规范占用的合法记号：出现这些形态时不算"未填占位符"
 #   - HTML/SVG 标签：<div> <T> <name> <your-key>
 #   - 泛型 / 类型参数：List<String>、Dict<K, V>、Promise<T>
@@ -360,12 +446,16 @@ def check(path: Path) -> tuple:
     text = path.read_text(encoding="utf-8")
 
     missing_h = [h for h in HEADINGS if h not in text]
-    missing_m = [m for m in MUST_ANSWER if m not in text]
     has_ledger = "设计台账" in text
     body = _strip_fenced(text)
+    sections = split_layer_sections(body)
+    # P3-1 加固：MUST_ANSWER 限域到 §4.N 段（"模型组合"仍跨层不限域）
+    missing_m, ma_structural = find_missing_must_answer(text, body, sections)
     placeholders = find_placeholders(body)
     unanswered = find_unanswered(body)
-    uncovered, structural = find_uncovered(body)
+    uncovered, fc_structural = find_uncovered(body)
+    # 合并两路结构性提示：43 问分层结构问题 + MUST_ANSWER 限域段缺失告警
+    structural = fc_structural + ma_structural
     return missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural
 
 

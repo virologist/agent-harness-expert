@@ -98,11 +98,16 @@ def test_43q_negative_headings_only():
 
 
 def test_43q_gate_is_additive_not_replacing():
-    """43 问检查是叠加项：原有检查（台账 / 占位符 / §13）仍在工作。"""
+    """43 问检查是叠加项：原有检查（台账 / 占位符 / §13）仍在工作。
+
+    P3-1 加固：MUST_ANSWER 也被限域到 §4.N 段——HEADINGS_ONLY 只有「模型组合」
+    在 §5 标题里不限域命中，其余 8 项都必须出现在 §4.1-§4.6 段才覆盖。
+    因此此 fixture 的「生产级必答项」在新规则下从 9/9 收紧到 1/9。
+    """
     proc = run(CHECK_DOC, [HEADINGS_ONLY])
     contains(proc.stdout, "设计台账行: 有", "台账检查仍执行")
     contains(proc.stdout, "§13 必答项结论空缺: 无", "§13 检查仍执行")
-    contains(proc.stdout, "生产级必答项: 9/9", "必答项检查仍执行")
+    contains(proc.stdout, "生产级必答项: 1/9", "必答项检查仍执行（P3-1 限域后 HEADINGS_ONLY 应为 1/9）")
 
 
 def _load_gate_module():
@@ -292,5 +297,279 @@ def test_missing_file_is_error():
         proc = run(CHECK_DOC, [ws.path / "nope.md"])
         exit_code(proc, 1, "不存在的文档应报错退出 1")
         contains(proc.stderr + proc.stdout, "文件不存在", "文件不存在提示")
+    finally:
+        ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# P3-1：MUST_ANSWER 限域到 §4.1-§4.6（仅"模型组合"不限域）
+# ---------------------------------------------------------------------------
+
+# 极简"按模板认真填"基线文档：六层各一句陈述、§13 结论列已填、所有 MUST_ANSWER
+# 关键词都放在**正确**层号段。这是 P3-1 测试的对照锚点。
+_P31_BASELINE = """# 测试文档
+
+## 1. 需求规格
+
+略。
+
+## 2. 架构范式 P
+
+略。
+
+## 3. 技术栈选型
+
+略。
+
+## 4. 六层设计
+
+### 4.1 E 执行循环
+失败回喂：模型自评是循环论证。打转检测：连续 3 次同参数指纹熔断。
+
+### 4.2 T 工具注册
+工具接入：ToolSpec 声明。凭证：外部代理注入；执行环境：容器内沙箱。
+
+### 4.3 C 上下文管理
+每轮重新组装：fresh build。前缀稳定：序列化确定性，key 顺序固定。
+
+### 4.4 S 状态存储
+记忆治理：可信度 + 归属 + TTL。幂等：idempotency_key + 状态查询。版本绑定：content_version 绑定证据。
+
+### 4.5 L 生命周期钩子
+拦截点：pre/post + policy + 安全监控。人在回路分四档。
+
+### 4.6 V 评估接口
+评估者分离：独立上下文 + 独立评分卡。迭代预算 3 轮。
+
+## 5. 模型组合与任务分派
+模型组合：决策型 + 快速低价 + 强力。
+
+## 6. 多 Agent 编排
+
+不适用。
+
+## 7. 模块 / 目录结构
+
+略。
+
+## 8. 关键接口签名
+
+略。
+
+## 9. 核心数据结构
+
+略。
+
+## 10. 配置文件格式
+
+略。
+
+## 11. 层间交叉检查
+
+略。
+
+## 12. 六层决策表
+
+略。
+
+## 13. 生产级必答项
+
+| # | 必答项 | 结论 |
+|---|--------|------|
+| 1 | 执行环境 | 沙箱 |
+| 2 | 错误回喂 | 是 |
+| 3 | 打转检测 | 是 |
+| 4 | 记忆治理 | 是 |
+| 5 | 幂等 | 是 |
+| 6 | 版本绑定 | 是 |
+| 7 | 评估者分离 | 是 |
+| 8 | 模型组合 | 是 |
+| 9 | 前缀稳定 | 是 |
+
+## 14. 参考架构图
+
+略。
+
+## 15. 遗留问题与未知区
+
+略。
+"""
+
+
+def test_p31_must_answer_baseline_9_of_9():
+    """P3-1 锚点：基线文档中所有 MUST_ANSWER 关键词均落在正确层号段 → 9/9 通过。"""
+    ws = Workspace()
+    try:
+        doc = ws.write("baseline.md", _P31_BASELINE)
+        proc = run(CHECK_DOC, [doc])
+        contains(proc.stdout, "生产级必答项: 9/9", "基线文档应 9/9 通过（P3-1 限域生效）")
+        # 不退出码：基线还有其它门禁（§13 表 8 行而非 9 行——见 §13 行数检查）。
+        # 本测试只断言 MUST_ANSWER 这一行的覆盖数字，不强求整体退出码。
+    finally:
+        ws.cleanup()
+
+
+def test_p31_must_answer_wrong_layer_not_covered():
+    """P3-1 核心验收：限域关键词放在**错误**层号段不算覆盖。
+
+    例如「错误回喂」本属 §4.1 E，但把它从 §4.1 E 段删掉、改放到 §4.3 C 段；
+    「执行环境」本属 §4.2 T，但放到 §4.5 L 段。这些都不应算覆盖。
+    """
+    ws = Workspace()
+    try:
+        # 在基线基础上，把「错误回喂」从 §4.1 移到 §4.3（错误的层号段）
+        # 「执行环境」从 §4.2 移到 §4.5 L 段
+        body = _P31_BASELINE
+        body = body.replace(
+            "### 4.1 E 执行循环\n失败回喂：模型自评是循环论证。打转检测：连续 3 次同参数指纹熔断。",
+            "### 4.1 E 执行循环\n打转检测：连续 3 次同参数指纹熔断。",
+        )
+        body = body.replace(
+            "### 4.3 C 上下文管理\n每轮重新组装：fresh build。前缀稳定：序列化确定性，key 顺序固定。",
+            "### 4.3 C 上下文管理\n每轮重新组装：fresh build。错误回喂：模型自评是循环论证。前缀稳定：序列化确定性，key 顺序固定。",
+        )
+        body = body.replace(
+            "### 4.2 T 工具注册\n工具接入：ToolSpec 声明。凭证：外部代理注入；执行环境：容器内沙箱。",
+            "### 4.2 T 工具注册\n工具接入：ToolSpec 声明。凭证：外部代理注入。",
+        )
+        body = body.replace(
+            "### 4.5 L 生命周期钩子\n拦截点：pre/post + policy + 安全监控。人在回路分四档。",
+            "### 4.5 L 生命周期钩子\n拦截点：pre/post + policy + 安全监控。人在回路分四档。执行环境：容器内沙箱。",
+        )
+        doc = ws.write("wrong_layer.md", body)
+        proc = run(CHECK_DOC, [doc])
+        contains(proc.stdout, "生产级必答项: 7/9",
+                 "「错误回喂」+「执行环境」放错层号段 → 从 9/9 收紧到 7/9")
+        contains(proc.stdout, "未出现:",
+                 "缺项应被点名（输出「未出现:」行）")
+        # 用 contains 验证「错误回喂」「执行环境」出现在未出现行
+        for missing in ("错误回喂", "执行环境"):
+            contains(proc.stdout, missing, f"未出现项应列出 {missing!r}")
+        exit_code(proc, 1, "MUST_ANSWER 跨错层应卡门禁")
+    finally:
+        ws.cleanup()
+
+
+def test_p31_must_answer_cross_layer_unbounded():
+    """P3-1 加固：「模型组合」跨 E/T/C 三档，由 §5 模型组合与任务分派承载，
+    MUST_ANSWER_LAYERS 中标为 None → 全文档命中即覆盖（不限域）。"""
+    ws = Workspace()
+    try:
+        # 基线中「模型组合」在 §5 标题与正文出现 → 不限域，应命中
+        doc = ws.write("cross_layer.md", _P31_BASELINE)
+        proc = run(CHECK_DOC, [doc])
+        # 模型组合必须出现在「未出现」列表之外（基线应 9/9 或仅缺其它项）
+        # 基线是 9/9，此测试单独跑 cross_layer.html 也能拿到「模型组合」覆盖
+        # ——直接在模块层验证不限域逻辑更精确。
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("cdd31x", CHECK_DOC)
+        mod = _ilu.module_from_spec(spec); spec.loader.exec_module(mod)
+        # 模块层断言：「模型组合」必须在 MUST_ANSWER_LAYERS 中标记为 None
+        is_true(
+            mod.MUST_ANSWER_LAYERS.get("模型组合") is None,
+            "「模型组合」必须标为不限域（None），跨 E/T/C 归 §5 承载",
+        )
+        # 限域关键词必须有层号（非 None）
+        for label in ("执行环境", "错误回喂", "打转检测", "记忆治理",
+                      "幂等", "版本绑定", "评估者分离", "前缀稳定"):
+            is_true(
+                mod.MUST_ANSWER_LAYERS.get(label) in mod.LAYER_SECTION,
+                f"限域关键词 {label!r} 必须有有效层号",
+            )
+        # 函数行为验证：在「模型组合」不出现在文档中的极端情况下不限域 -> 该项缺失；
+        # 在「模型组合」出现在文档中则不限域命中 -> 该项覆盖。
+        empty_body = mod._strip_fenced("# 测试\n无任何关键词。\n")
+        empty_sections = mod.split_layer_sections(empty_body)
+        missing, _ = mod.find_missing_must_answer("", empty_body, empty_sections)
+        contains(" ".join(missing), "模型组合",
+                 "无任何关键词的文档里「模型组合」应被记为缺失")
+        # 给一具含「模型组合」的极简 body
+        hit_body = mod._strip_fenced("# 测试\n## 5. 模型组合与任务分派\n模型组合按档位分。\n")
+        hit_sections = mod.split_layer_sections(hit_body)
+        missing2, _ = mod.find_missing_must_answer("", hit_body, hit_sections)
+        not_in = "模型组合" not in missing2
+        is_true(not_in, "「模型组合」出现在 §5 任意位置不限域命中，应不在缺失列表")
+    finally:
+        ws.cleanup()
+
+
+def test_p31_must_answer_missing_layer_section_falls_back_to_full_doc():
+    """P3-1 加固：限域段不存在（如 §4.4 S 段被吞）→ 退回全文档匹配并报结构性问题。
+
+    例如 S 层段落没了但「记忆治理」/「幂等」/「版本绑定」仍出现在全文其它位置
+    （§5/§13），按"退回全文档"原则视为覆盖。同时结构性列表里应明示段位缺失。
+    """
+    ws = Workspace()
+    try:
+        # 在模块层直接验证：人为构造一份缺 §4.4 S 段的 body，
+        # 把 S 相关关键词塞到 §5 模型组合的正文里
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location("cdd31s", CHECK_DOC)
+        mod = _ilu.module_from_spec(spec); spec.loader.exec_module(mod)
+        body_no_S = mod._strip_fenced("""# 测试
+
+## 4.1 E 执行循环
+错误回喂：模型自评是循环论证。
+
+## 4.2 T 工具注册
+工具接入：ToolSpec。执行环境：容器内沙箱。
+
+## 4.3 C 上下文管理
+每轮重新组装。前缀稳定：序列化确定。
+
+## 4.5 L 生命周期钩子
+拦截点：pre/post。
+
+## 4.6 V 评估接口
+评估者分离：独立上下文 + 独立评分卡。
+
+## 5. 模型组合与任务分派
+记忆治理：可信度 + TTL。幂等：idempotency_key。版本绑定：content_version。
+
+## 13. 生产级必答项
+
+| # | 必答项 | 结论 |
+|---|--------|------|
+| 1 | 执行环境 | 是 |
+| 2 | 错误回喂 | 是 |
+| 3 | 打转检测 | 是 |
+| 4 | 记忆治理 | 是 |
+| 5 | 幂等 | 是 |
+| 6 | 版本绑定 | 是 |
+| 7 | 评估者分离 | 是 |
+| 8 | 模型组合 | 是 |
+| 9 | 前缀稳定 | 是 |
+""")
+        sections = mod.split_layer_sections(body_no_S)
+        # §4.4 S 段应不在（确认测试前提成立）
+        is_true(4 not in sections, "测试前提：§4.4 S 段必须不在")
+        missing, structural = mod.find_missing_must_answer("", body_no_S, sections)
+        # §4.4 段缺失时，「记忆治理」「幂等」「版本绑定」退回全文档匹配
+        # 应在 body 中存在 → 不在 missing 里
+        for kw in ("记忆治理", "幂等", "版本绑定"):
+            is_true(
+                kw not in missing,
+                f"限域段缺失时 {kw!r} 应退回全文档匹配并视为覆盖",
+            )
+        # 但应报结构性问题
+        structural_str = " ".join(structural)
+        contains(structural_str, "§4.4", "限域段缺失应报结构性问题（含 §4.4）")
+        contains(structural_str, "段落缺失",
+                 "限域段缺失应明示「段落缺失」字样")
+        # 反向断言：有 §4.4 段但段内无 S 关键词，应记为缺失
+        body_with_empty_S = mod._strip_fenced("""# 测试
+
+## 4.4 S 状态存储
+略。
+
+## 13. 生产级必答项
+略。
+""")
+        sections_with_S = mod.split_layer_sections(body_with_empty_S)
+        is_true(4 in sections_with_S, "测试前提：§4.4 S 段必须存在")
+        missing2, _ = mod.find_missing_must_answer("", body_with_empty_S, sections_with_S)
+        # 「记忆治理」段内无 → 应记为缺失（不退回全文档）
+        is_true("记忆治理" in missing2,
+                "有限域段但段内无关键词时，必须记为缺失（不退回全文档）")
     finally:
         ws.cleanup()
