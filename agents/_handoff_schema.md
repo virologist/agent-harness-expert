@@ -20,3 +20,4 @@
 - 任何成员 MD 的「SendMessage 回传」节必须引用本文件路径
 - 字段增删必须同步更新所有 4 成员 MD 的引用与本文件 v 版本号
 - 撞限场景：status=turns_exhausted 时 `turns_exhausted_at` 必填，且 summary 头部必须显式标注「轮次耗尽，产出不完整」（与各成员 MD「撞限协议（内置）」节一致）
+- 主理人阶段收尾时，同时更新项目级 `<项目>/.harness-kb/_state.json`（schema 见 `agents/_state_schema.md`，工具见 `skills/coding-prompt/scripts/state_io.py`）——SendMessage 回传解决跨轮次通信，_state.json 落盘解决跨会话重启；两者**双轨并存、缺一不收尾**
