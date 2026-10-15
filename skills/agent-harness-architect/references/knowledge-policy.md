@@ -5,6 +5,8 @@
 ## 一、两套位置：包内基线 + 团队 wiki 底座
 
 > **团队语境**（本包内嵌于 agent-harness-expert 专家团）：知识统一沉淀到 wiki 底座，架构师的进化就是团队的进化。独立使用本 skill 时，把本节的「wiki 底座」替换为外部进化库 `$WORKBUDDY_CONFIG_DIR/agent-harness-knowledge/`，其余规则不变。
+>
+> **另见**：`agents/agent-harness-expert-team-lead.md` §八「团队语境仲裁」——主理人侧的同级裁决：wiki 底座唯一沉淀、knowledge_lib.py 团队流禁用、外部库仅供独立单机模式；与本文件 L17「写读位置必须同一套」、L19 防断链纪律互相防死。
 
 | | 包内（只读） | 团队 wiki 底座（可写） |
 |---|---|---|

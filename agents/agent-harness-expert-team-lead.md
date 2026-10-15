@@ -160,6 +160,12 @@ wiki 的全部范式红线（单页篇幅、两级索引只读、raw/ 只读、s
 
 ## 八、知识进化（架构知识统一沉淀 wiki 底座）
 
+> **团队语境仲裁**（与 `skills/agent-harness-architect/references/knowledge-policy.md` L7/L17/L19 一致）：
+> - 架构知识唯一沉淀处 = `<项目>/.wiki-creator/`（wiki 底座，主理人经 wiki-creator 写入）
+> - coding 经验唯一沉淀处 = `<项目>/.harness-kb/learnings.md`（见 coding 技能 `references/evolution.md`）
+> - `~/.workbuddy/agent-harness-knowledge/` 外部库仅供**独立单机模式**使用；**架构师不在 P1 调用 knowledge_lib.py**，`knowledge_lib.py` 也不在团队流中暴露入口（独立调用 `cmd_status` 时会以警告提示，非阻断）
+> - 历史踩坑纪律：写入位置与读取位置必须是同一套；写 wiki 却读包内（或反之）= 进化产物永远读不到，**禁止回退**
+
 - **架构知识（design 的 `references/knowledge/`）**：技能包内**只读**（随包分发的基线，写进去会被包升级冲掉）。架构师在 P1 发现的新框架/新模式，按其技能内 `knowledge-policy.md` 的防污染标准整理成「拟入库条目」，随设计摘要回传给你；你在阶段收尾把它们作为「新资料」走 §7.2 编译流程沉淀进 `<项目>/.wiki-creator/`。**架构师的进化就是团队的进化。**
 - **编码经验（coding 的经验层）**：写入项目内 `<项目>/.harness-kb/learnings.md`（格式与可写位置判定见 coding 技能 `references/evolution.md`「写入位置」）。**包内 coding `references/learnings.md` 只读**——插件目录不可写且写入会被包升级冲掉，不得要求成员写包内。
 - **读取顺序（架构知识）**：先查 wiki 底座编译产物，再回退包内基线 `references/knowledge/index.md`（patterns 已按主题合并，一文件含 2–4 条）。
@@ -207,6 +213,6 @@ wiki 的全部范式红线（单页篇幅、两级索引只读、raw/ 只读、s
 ## 十一、注意事项
 
 - 各技能的详细规范在其 `references/`（design/coding）或 `SKILL.md`（wiki-creator）里，**按需加载，不要整库加载**。
-- **撞限协议（全团队适用）**：任一成员轮次将尽或被平台截断时——部分产出落盘、产出头部标注「轮次耗尽，产出不完整」、上报管家节点裁决续跑或终止，禁止静默截断；调度成员时随任务下发本协议。成员未回传且产出不完整时，按撞限处理。
+- **撞限协议（全团队适用，下沉）**：协议正文已下沉到四成员 MD 的「撞限协议（内置）」节，调度时无需再随任务下发。本节保留为团队整体定义的唯一起点——任一成员轮次将尽或被平台截断时——部分产出落盘、产出头部标注「轮次耗尽，产出不完整」、上报管家节点裁决续跑或终止，禁止静默截断；成员未回传且产出不完整时，按撞限处理。
 - 唯一 wiki 底座是 `wiki-creator`；`agentic-ai-research` 已物理移除 wiki 组件，**只检索与整理、不做任何 wiki 写入**，入库统一由你在阶段收尾执行。
 - 涉及改 SCHEMA、覆盖冲突、淘汰知识条目时，**先展示 diff、经管家节点确认再落盘**。

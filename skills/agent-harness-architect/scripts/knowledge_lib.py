@@ -10,6 +10,11 @@
 路径规则（与 SKILL.md §0-B 一致）:
     包内（只读）: <SKILL_DIR>/references/knowledge/
     外部（可写）: $WORKBUDDY_CONFIG_DIR/agent-harness-knowledge/  缺省 ~/.workbuddy/agent-harness-knowledge/
+
+团队语境（与 references/knowledge-policy.md L7 + team-lead §八 一致）:
+    外部库仅供独立单机模式使用。架构师不在 P1 调用本工具，团队流不暴露入口。
+    检测到 EXPERT_DIR 指向 agent-harness-expert 或 cwd 在其下时，status 子命令追加
+    警告（不阻断 ingest/init，保留合法独立使用的退路）。
 """
 from __future__ import annotations
 
@@ -20,6 +25,28 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 PKG_KB = SKILL_DIR / "references" / "knowledge"
+TEAM_CONTEXT_MARKER = "agent-harness-expert"
+
+
+def _in_team_context() -> bool:
+    """检测当前是否在 agent-harness-expert 团队语境下。
+
+    触发条件（任一命中即视为团队语境）：
+      - 环境变量 EXPERT_DIR 指向路径包含 "agent-harness-expert"
+      - 当前工作目录的祖先路径中存在以 "agent-harness-expert" 命名的目录
+    仅在 status 子命令中调用，**不阻断 ingest**，避免破坏合法独立使用。
+    """
+    exp = os.environ.get("EXPERT_DIR", "")
+    if exp and TEAM_CONTEXT_MARKER in Path(exp).expanduser().as_posix():
+        return True
+    try:
+        cwd = Path.cwd().resolve()
+        for parent in [cwd, *cwd.parents]:
+            if parent.name == TEAM_CONTEXT_MARKER:
+                return True
+    except OSError:
+        pass
+    return False
 
 
 def ext_dir() -> Path:
@@ -38,6 +65,11 @@ def cmd_status(_args) -> int:
         print("  状态: 未初始化（运行 init 创建）")
     else:
         print(f"  状态: 已初始化，索引 {idx}")
+    if _in_team_context():
+        print(
+            "⚠️  团队语境：此工具仅供独立单机模式使用，团队模式请走 wiki 底座"
+            "（见 references/knowledge-policy.md 与 agents/agent-harness-expert-team-lead.md §八）"
+        )
     return 0
 
 
