@@ -61,34 +61,33 @@ def _parse_table(learnings_text: str) -> tuple[list[str], list[list[str]], int]:
 def _apply_promotion(rows: list[list[str]]) -> tuple[list[list[str]], list[dict]]:
     """对每行检查复现数/状态，返 (新行, 变更记录)。"""
     changes = []
-    new_rows = []
+    new_rows: list[list[str]] = []
     for row in rows:
         if len(row) < 6:
-            new_rows.append(row)
+            new_rows.append(list(row))
             continue
         pk, first_seen, repro_count_str, status, source, summary = row[:6]
         if pk.startswith("_") or not pk.strip():
-            new_rows.append(row)
+            new_rows.append(list(row))
             continue
         # 复现数列：解析为整数
         try:
             repro_count = int(repro_count_str.strip())
         except ValueError:
-            new_rows.append(row)
+            new_rows.append(list(row))
             continue
         new_status = status
-        change = {"pk": pk, "from": status, "to": new_status, "repro_count": repro_count}
         if repro_count >= PROMOTE_THRESHOLD and status == "pending":
             new_status = "promoted"
         elif repro_count < PROMOTE_THRESHOLD and status == "promoted":
             new_status = "pending"
-        change["to"] = new_status
         if new_status != status:
-            changes.append(change)
-        new_rows = list(row)
-        new_rows[3] = new_status
-        new_rows = tuple(new_rows)
-        new_rows = list(new_rows)
+            changes.append({
+                "pk": pk, "from": status, "to": new_status, "repro_count": repro_count,
+            })
+        new_row = list(row)
+        new_row[3] = new_status
+        new_rows.append(new_row)
     return new_rows, changes
 
 
