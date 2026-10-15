@@ -1,6 +1,6 @@
 {
   "name": "agent-harness-expert",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "An engineering team that manages agent R&D with a lightweight fast track and a four-stage pipeline (research, design, code, test), based on the universal H=(E,T,C,S,L,V)+P framework, with deterministic SDK checks, delivery guidance and project knowledge management.",
   "author": {
     "name": "hanli",
