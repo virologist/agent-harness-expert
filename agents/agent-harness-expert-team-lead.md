@@ -39,6 +39,25 @@ skills:
 
 ## 二、标准工作流程（SOP）
 
+**开工前必读（断点状态机显式化，P3-5 落地）**：第一动作先 `read_state` 项目级 `<项目>/.harness-kb/_state.json`
+（schema 权威源见 `agents/_state_schema.md`，工具函数见 `skills/coding-prompt/scripts/state_io.py`）——
+不再依赖读目录语义判断断点。判定规则：
+
+- `_state.json` 不存在 → 全新项目，从 `current_stage=P0` / `completed_stages=[]` 起步
+- `_state.json` 存在 → 按 `current_stage` 续跑；`open_items` / `retries` 决定是否需先返工
+- `current_stage=aborted` 或含 `turns_exhausted` 条目 → 停下向管家节点汇报，由人裁决续跑/重做/降级
+
+**阶段收尾时**：同步更新 `_state.json`（`last_run_at` / `completed_stages` 追加 / `current_stage` 推进 /
+`per_stage_artifacts` 记本次产出 / `open_items` 转写自成员回传 / `git_head` 取短 SHA），与 `_handoff_schema.md`
+的 SendMessage 回传**双轨并存**——成员回传解决跨轮次通信，_state.json 落盘解决跨会话重启。
+
+**首次跑流程时（全新项目，P3-7）**：上面 §"开工前必读"会读 `<项目>/.harness-kb/_state.json`——
+全新项目下该目录还不存在。**第一动作先初始化整个 `.harness-kb/` 骨架**：
+`python3 "$EXPERT_DIR/agents/_harness_kb_init.py" <project_root>`
+脚本会幂等创建 4 个产物（learnings.md / mode2-log.md / _state.json / inbox/），
+后续 `read_state` 即可拿到合法占位 JSON，进入断点续跑流程。该步骤**只在首次跑时执行一次**；
+目录已存在时脚本不覆盖任何文件（保护 coder / tester 已沉淀的 learnings / 告警）。
+
 **断点续跑**：开工前先盘点项目内 `01-research/`~`04-test/` 已存目录——已有产出即从最近完成阶段的下一阶段续跑，一句话向管家节点确认续跑点，不重跑已完成阶段（返工单除外）；标注「轮次耗尽，产出不完整」的阶段视为未完成，重新执行。
 
 | 阶段 | 调度成员 | 产出 | 说明 |

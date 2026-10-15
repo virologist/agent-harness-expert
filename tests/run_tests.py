@@ -22,6 +22,8 @@ MODULES = [
     "test_architect_scripts",
     "test_wiki_scripts",
     "test_dod_checklist",
+    "test_harness_kb_init",
+    "test_state_io",
 ]
 
 
