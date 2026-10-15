@@ -1,0 +1,13 @@
+{
+  "name": "real_p4_monitoring",
+  "kind": "boundary",
+  "source": "real",
+  "real_source": "viral-evo-lab/docs/P4_monitoring_design.md (127 lines, 2026-10-14)",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 999,
+    "max_placeholders": 999
+  },
+  "notes": "v1.7.1 真实样本：来自 viral-evo-lab 真实设计文档（H 框架 P4 阶段预研），结构是 §1-§6 非 H 框架 15 标题，期望门禁暴露兼容性 gap。fail 也是有价值的——证明真实世界设计与 H 框架模板不完全契合，门禁需要给真实偏差留余地。"
+}
