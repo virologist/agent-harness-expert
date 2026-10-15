@@ -21,6 +21,7 @@ MODULES = [
     "test_lint_knowledge",
     "test_architect_scripts",
     "test_wiki_scripts",
+    "test_dod_checklist",
 ]
 
 
