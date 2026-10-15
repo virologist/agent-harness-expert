@@ -4,6 +4,9 @@ resolve_paths.py / knowledge_lib.py / render_questionnaire.py
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from _harness import (
     ARCH_SCRIPTS,
     KNOWLEDGE_LIB,
@@ -130,6 +133,87 @@ def test_knowledge_lib_missing_file_is_error():
         proc = run(KNOWLEDGE_LIB, ["ingest", ws.path / "nope.md"], env=_ext_env(ws))
         exit_code(proc, 1, "ingest 不存在文件应返回 1")
         contains(proc.stderr + proc.stdout, "文件不存在", "应提示文件不存在")
+    finally:
+        ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# P1-5：ingest 挂 lint + 查重 + 路径常量统一
+# ---------------------------------------------------------------------------
+
+def test_knowledge_lib_ingest_duplicate_rejected_by_default():
+    """同名不传 --force 应被拒绝（默认拒绝而非默认覆盖）。"""
+    ws = Workspace()
+    try:
+        env = _ext_env(ws)
+        src = ws.write("entry.md", ENTRY_HARNESS)
+        proc = run(KNOWLEDGE_LIB, ["ingest", src], env=env)
+        exit_code(proc, 0, "首次 ingest 应通过")
+        proc = run(KNOWLEDGE_LIB, ["ingest", src], env=env)
+        exit_code(proc, 1, "同名二次 ingest 默认应被拒绝")
+        contains(proc.stdout, "条目已存在", "应明示条目已存在")
+        contains(proc.stdout, "--force", "应提示 --force 强制覆盖")
+    finally:
+        ws.cleanup()
+
+
+def test_knowledge_lib_ingest_force_overwrites():
+    """传 --force 应允许覆盖已存在的条目。"""
+    ws = Workspace()
+    try:
+        env = _ext_env(ws)
+        src = ws.write("entry.md", ENTRY_HARNESS)
+        proc = run(KNOWLEDGE_LIB, ["ingest", src], env=env)
+        exit_code(proc, 0, "首次 ingest 应通过")
+        # 改源文件内容，强制覆盖应写入新内容
+        new_text = ENTRY_HARNESS.replace("# 测试框架", "# 测试框架_已覆盖")
+        src.write_text(new_text, encoding="utf-8")
+        proc = run(KNOWLEDGE_LIB, ["ingest", src, "--force"], env=env)
+        exit_code(proc, 0, "--force 应允许覆盖")
+        contains(proc.stdout, "已收录", "覆盖后应打印已收录")
+        dest = ws.path / "cfg" / "agent-harness-knowledge" / "frameworks" / "core" / "entry.md"
+        contains(dest.read_text(encoding="utf-8"), "测试框架_已覆盖",
+                 "确认目标文件已被覆盖为新内容")
+    finally:
+        ws.cleanup()
+
+
+def test_knowledge_lib_ingest_lint_rejects_bad_entry():
+    """lint 失败的不合格条目应被拒绝收录（不调入）。"""
+    ws = Workspace()
+    try:
+        # 故意去掉必填的 pinned（framework frontmatter 必填字段）
+        bad = ENTRY_HARNESS.replace("pinned: false\n", "")
+        src = ws.write("bad.md", bad)
+        proc = run(KNOWLEDGE_LIB, ["ingest", src], env=_ext_env(ws))
+        exit_code(proc, 1, "lint 失败的条目应拒绝收录")
+        contains(proc.stdout, "LINT FAIL", "应明示 lint 失败")
+        contains(proc.stdout, "pinned", "应点名缺失的字段")
+        # 验证目标文件未创建（不调入）
+        ext = ws.path / "cfg" / "agent-harness-knowledge"
+        is_true(not (ext / "frameworks" / "core" / "bad.md").exists(),
+                "lint 拒绝的条目不应落到外部库")
+    finally:
+        ws.cleanup()
+
+
+def test_knowledge_lib_uses_resolve_paths_knowledge_dirname():
+    """ext_dir() 应跟随 resolve_paths.py 的 KNOWLEDGE_DIRNAME 常量（路径统一）。"""
+    ws = Workspace()
+    try:
+        env = _ext_env(ws)
+        proc = run(KNOWLEDGE_LIB, ["status"], env=env)
+        exit_code(proc, 0, "status 应返回 0")
+        # 抓"外部进化库（可写）:"行做路径归一比较（macOS /tmp vs /private/tmp）
+        ext_line = [ln for ln in proc.stdout.splitlines() if "外部进化库（可写）:" in ln][0]
+        kb_ext = ext_line.split("外部进化库（可写）:", 1)[1].strip()
+        rp_proc = run(RESOLVE_PATHS, env=env)
+        exit_code(rp_proc, 0, "resolve_paths 应返回 0")
+        rp_ext_line = [ln for ln in rp_proc.stdout.splitlines() if ln.startswith("EXT_DIR=")][0]
+        rp_ext = rp_ext_line.split("=", 1)[1]
+        # 用 realpath 归一再比较，避开 macOS /tmp vs /private/tmp 分叉
+        is_true(os.path.realpath(kb_ext) == os.path.realpath(rp_ext),
+                f"knowledge_lib 报出的 ext ({kb_ext}) 应与 resolve_paths 的 EXT_DIR ({rp_ext}) 一致")
     finally:
         ws.cleanup()
 

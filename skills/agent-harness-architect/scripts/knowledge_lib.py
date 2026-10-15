@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util as _il
 import os
 import shutil
 from pathlib import Path
@@ -26,6 +27,23 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 PKG_KB = SKILL_DIR / "references" / "knowledge"
 TEAM_CONTEXT_MARKER = "agent-harness-expert"
+
+
+def _load_local(name: str):
+    """加载同目录下其它脚本模块（scripts/ 不是 Python 包，用 importlib 直加载）。"""
+    p = Path(__file__).resolve().parent / f"{name}.py"
+    spec = _il.spec_from_file_location(f"_{name}_local", p)
+    mod = _il.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# 复用 resolve_paths.py 的路径常量（统一两处实现，避免路径分叉）。
+_resolve_paths = _load_local("resolve_paths")
+KNOWLEDGE_DIRNAME = _resolve_paths.KNOWLEDGE_DIRNAME
+# 挂 lint 门禁（与 lint_knowledge.py 的 lint_file() 同源；默认严格：有问题即拒绝收录）。
+_lint_knowledge = _load_local("lint_knowledge")
+del _il
 
 
 def _in_team_context() -> bool:
@@ -51,7 +69,7 @@ def _in_team_context() -> bool:
 
 def ext_dir() -> Path:
     base = os.environ.get("WORKBUDDY_CONFIG_DIR") or (Path.home() / ".workbuddy")
-    return Path(base).expanduser() / "agent-harness-knowledge"
+    return Path(base).expanduser() / KNOWLEDGE_DIRNAME
 
 
 def cmd_status(_args) -> int:
@@ -132,8 +150,22 @@ def cmd_ingest(args) -> int:
         raise SystemExit(f"文件不存在: {src}")
     ext = ext_dir()
     ext.mkdir(parents=True, exist_ok=True)
+    # 1) 落盘前挂 lint（默认严格：有问题即拒绝收录，不调入）
+    #    root 指向外部库根，使 classify_entry 能按相对路径段判定类型
+    problems = _lint_knowledge.lint_file(src, root=ext)
+    if problems:
+        print(f"[LINT FAIL] {src} 不通过 lint_knowledge 校验，拒绝收录：")
+        for p in problems:
+            print(f"  - {p}")
+        print("修复后再 ingest；如确属 lint 误判，先在条目文件里补齐必填字段/小节再重试")
+        return 1
     dest = _dest_for(src, ext)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # 2) 查重（默认拒绝而非默认覆盖；--force 显式覆盖）
+    if dest.exists() and not args.force:
+        print(f"条目已存在: {dest}")
+        print("如需强制覆盖，请追加 --force")
+        return 1
     shutil.copyfile(src, dest)
     print(f"已收录: {dest}")
     if args.row:
@@ -173,6 +205,8 @@ def main() -> int:
     p_ing = sub.add_parser("ingest", help="收录条目到外部进化库")
     p_ing.add_argument("file")
     p_ing.add_argument("--row", help="同时追加到外部 index.md 的表格行")
+    p_ing.add_argument("--force", action="store_true",
+                       help="强制覆盖已存在的条目（默认拒绝而非默认覆盖）")
     p_ing.set_defaults(func=cmd_ingest)
 
     p_pro = sub.add_parser("promote", help="把外部条目回写进包内（发布前合并）")
