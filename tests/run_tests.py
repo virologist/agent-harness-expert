@@ -24,6 +24,7 @@ MODULES = [
     "test_dod_checklist",
     "test_harness_kb_init",
     "test_state_io",
+    "test_promoted_checker",
 ]
 
 
