@@ -1,0 +1,1 @@
+../../tests/fixtures/design_from_template.md

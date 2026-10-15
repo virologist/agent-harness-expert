@@ -1,0 +1,11 @@
+{
+  "name": "design_headings_only",
+  "kind": "negative",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 999,
+    "max_placeholders": 999
+  },
+  "notes": "故意缺层/缺 §13/含占位符 — 期望被门禁拦下 (exit=1)"
+}

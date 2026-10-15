@@ -1,0 +1,11 @@
+{
+  "name": "design_from_template",
+  "kind": "positive",
+  "expectation": {
+    "exit_code": 0,
+    "min_43q_coverage": 43,
+    "max_unanswered": 0,
+    "max_placeholders": 0
+  },
+  "notes": "P0-3c 验证锚点：按模板填满的文档期望 43/43 覆盖且 0 缺"
+}

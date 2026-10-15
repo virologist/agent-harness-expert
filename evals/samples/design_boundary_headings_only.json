@@ -1,0 +1,11 @@
+{
+  "name": "design_boundary_headings_only",
+  "kind": "boundary",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 999,
+    "max_placeholders": 999
+  },
+  "notes": "P0-3 之前会假绿放行的「仅 15 标题」样本；P0-3c 后必须被 §4 限域 + 占位符检 + MIN_SECTION_CHARS 拦下"
+}

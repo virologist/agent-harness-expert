@@ -1,0 +1,1 @@
+../../tests/fixtures/design_empty_conclusions.md

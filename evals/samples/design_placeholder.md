@@ -1,0 +1,1 @@
+../../tests/fixtures/design_placeholder.md
