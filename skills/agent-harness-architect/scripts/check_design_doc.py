@@ -8,16 +8,23 @@
     1  存在任一缺失项（默认行为，无需加参数）
     --strict 保留为向后兼容开关，当前等同于默认行为。
 
-检查面：
+检查面（**五项全部参与门禁判定**，任何一项不满足即默认退出码 1）：
     1. 15 个必需章节
     2. 9 个生产级必答项关键词 + §13 结论列是否真填
     3. 设计台账行
     4. 未填占位符 <...>
-    5. H 框架六层必答设计问题覆盖 X/43（见 QUESTION_KEYWORDS）
+    5. H 框架六层必答设计问题覆盖 X/43（见 QUESTION_KEYWORDS）+ 分层结构是否完整
 
 **43 问覆盖是"结构完整性启发式"，不是语义判断**：脚本只报"文档里没提到这个词"，
 不报"答得好不好"。按本包「三件事分工宪法」，语义质量判定（答案是否成立、
 是否自洽）归 LLM/架构师，脚本只做它能确定的字符串层面检查。
+
+为避免"关键词堆砌即满分"，43 问匹配有三条硬约束（阈值依据见各自常量注释）：
+    a) 限域：E 问只在 §4.1 段内找、T→§4.2、C→§4.3、S→§4.4、L→§4.5、V→§4.6；
+       找不到对应分层段落 → 该层整层计为未覆盖，并报结构性问题（不静默全文匹配）。
+    b) 最小答案长度：该层段落正文 ≥ MIN_SECTION_CHARS，且命中行 ≥ MIN_LINE_CHARS。
+    c) 词边界：纯 ASCII 关键词（wal / state / jwt / sso / oidc 等）用 \b 匹配，
+       避免 paywall / statement / Cornwall 这类误命中。
 
 用法:
     python3 check_design_doc.py designs/支付助手-harness-design-v1.md
@@ -128,19 +135,115 @@ def total_questions() -> int:
     return sum(len(v) for v in QUESTION_KEYWORDS.values())
 
 
-def find_uncovered(body: str) -> list:
-    """返回六层必答问题里「正文未提到任何关键词」的问题编号。
+def _compile_keyword(kw: str):
+    """纯 ASCII 关键词（wal / state / jwt / sso / oidc…）用词边界匹配。
 
-    只判**有没有提到**（结构完整性），不判**答得好不好**（语义质量）。
+    这些词只有 3-5 个字符，子串匹配会被 paywall / statement / Cornwall 之类的
+    普通英文词误命中；中文关键词不存在这个问题，直接子串匹配。
+    """
+    if kw.isascii():
+        return re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE)
+    return None
+
+
+_KEYWORD_RX = {
+    kw: _compile_keyword(kw)
+    for _layer, questions in QUESTION_KEYWORDS.items()
+    for _qid, _label, keywords in questions
+    for kw in keywords
+}
+
+# ---------------------------------------------------------------------------
+# 43 问匹配的三条硬约束（防止"把关键词堆一排"就能拿满分）
+# ---------------------------------------------------------------------------
+
+# 层 → §4.N 段号（与 assets/design-doc.md §4 一致）
+LAYER_SECTION = {"E": 1, "T": 2, "C": 3, "S": 4, "L": 5, "V": 6}
+
+# (a) 分层段落标题：`## 4.1 ...` / `### 4.1 ...` 两种层级都认
+_SEC_HEADING_RE = re.compile(r"^(#{2,4})\s*4\.(\d)\b.*$", re.MULTILINE)
+_ANY_HEADING_RE = re.compile(r"^(#{1,6})\s", re.MULTILINE)
+
+# (b) 最小答案长度
+#   MIN_SECTION_CHARS=200：一层正文不足 200 字符 ≈ 三句话都不到，等于该层没作答。
+#   依据：两份"按模板认真填"的正样本（tests/fixtures/design_full.md、
+#   design_from_template.md）六层段落实测均在 500–900 字符，留 2.5 倍以上余量；
+#   而"每层一句空话 + 关键词平铺"的文档每层只有 100 字符上下，正好被挡在门外。
+#   MIN_LINE_CHARS=20：一行 20 字符 ≈ 一个名词短语，挡"每行只贴 1-2 个关键词不展开"的
+#   极端凑数写法；自然陈述句（30-60 字符）和表格行（可逐行达到）不受影响。
+#   已知代价：用极短行逐项作答的文档会被判未覆盖——这是刻意的严格，
+#   改写成陈述句即可，或用 --lenient 放行。
+MIN_SECTION_CHARS = 200
+MIN_LINE_CHARS = 20
+
+
+def split_layer_sections(body: str) -> dict:
+    """按 `4.N` 标题切出六层段落，返回 {段号: 段落正文}。
+
+    段落边界 = 下一个层级 ≤ 当前标题层级的标题（同级 `### 4.2` 或上级 `## 5.` 都算）。
+    """
+    heads = [
+        (m.end(), len(m.group(1)), int(m.group(2)))
+        for m in _SEC_HEADING_RE.finditer(body)
+    ]
+    sections = {}
+    for i, (start, level, num) in enumerate(heads):
+        end = len(body)
+        for m in _ANY_HEADING_RE.finditer(body, start):
+            if len(m.group(1)) <= level:
+                end = m.start()
+                break
+        # 同名段号重复出现时保留内容更长的一段（防目录/摘要页抢跑）
+        if len(body[start:end].strip()) >= len(sections.get(num, "").strip()):
+            sections[num] = body[start:end]
+    return sections
+
+
+def _keyword_hit(keyword: str, lines: list) -> bool:
+    """关键词是否在某一行命中，且该行达到最小答案长度。"""
+    rx = _KEYWORD_RX.get(keyword)
+    for line in lines:
+        hit = bool(rx.search(line)) if rx is not None else keyword.lower() in line.lower()
+        if hit and len(line.strip()) >= MIN_LINE_CHARS:
+            return True
+    return False
+
+
+def find_uncovered(body: str) -> tuple:
+    """返回 (未覆盖问题列表, 结构性问题列表)。
+
+    只判**有没有按层写到、写够长度**（结构完整性），不判**答得好不好**（语义质量）。
     后者按三件事分工宪法归 LLM，脚本不做规则匹配。
     """
-    low = body.lower()
+    sections = split_layer_sections(body)
+    structural = []
+
+    if not sections:
+        # 找不到任何 4.1–4.6 标题：不静默降级为全文匹配（那等于没做限域），
+        # 而是明确记为结构性问题，同时退化为全文匹配以便给出覆盖数参考。
+        structural.append(
+            "缺六层分层结构：未找到任何 `4.1`–`4.6` 标题，43 问无法按层定位"
+            "（已退化为全文匹配，仍计为缺失项）"
+        )
+        sections = {n: body for n in LAYER_SECTION.values()}
+
     uncovered = []
-    for _layer, questions in QUESTION_KEYWORDS.items():
+    for layer, questions in QUESTION_KEYWORDS.items():
+        num = LAYER_SECTION[layer]
+        if num not in sections:
+            structural.append(f"缺分层段落: §4.{num}（{layer} 层）")
+            uncovered.extend(f"{qid} {label}" for qid, label, _kw in questions)
+            continue
+        sec = sections[num]
+        if len(sec.strip()) < MIN_SECTION_CHARS:
+            # 该层正文过少 —— 整层视为未作答（挡掉"每层一句空话 + 关键词平铺"）
+            uncovered.extend(f"{qid} {label}" for qid, label, _kw in questions)
+            continue
+        lines = sec.splitlines()
         for qid, label, keywords in questions:
-            if not any(k.lower() in low for k in keywords):
+            if not any(_keyword_hit(k, lines) for k in keywords):
                 uncovered.append(f"{qid} {label}")
-    return uncovered
+    return uncovered, structural
 
 
 # 已被文档规范占用的合法记号：出现这些形态时不算"未填占位符"
@@ -150,41 +253,70 @@ def find_uncovered(body: str) -> list:
 _ALLOWED_TAG = re.compile(
     r"^<[A-Za-z_][A-Za-z0-9_.:\-]*(?:\s*/?)?>$"      # <div> <T> <my-key> </span>
 )
-_TOLDF_SLOT = re.compile(r"^<[^<>\n]{1,60}>$")
+_TOLDF_SLOT = re.compile(r"^<[^<>\n]+>$")
 # `<` 左侧紧邻这些字符时，几乎必然是比较运算或泛型（a<b、List<T>、x<=1）
 _IDENT_CHAR_BEFORE = re.compile(r"[A-Za-z0-9_)\]]$")
 # 形似标签但实为占位符的常见缩写（TBD / TODO / FIXME / XXX）
 _TODO_LIKE = re.compile(r"^<(?:TBD|TODO|FIXME|XXX|N/A|N/T)>$", re.IGNORECASE)
+
+# 「短尖括号」的长度上限。短的一律算未填占位符（模板提示词就是这个量级）。
+# 超过上限的**不再无条件放行**——见 _is_placeholder_token 的双条件判定。
+MAX_PLACEHOLDER_CHARS = 60
+
+
+def _token_has_question_keyword(tok: str) -> bool:
+    """尖括号内容里是否含 43 问关键词。
+
+    用途：模板提示词 = 门禁关键词。若把多条提示词合并成一条长尖括号（>60 字符），
+    长度条件会失效，"留着不填"就白拿 43/43。含关键词的长尖括号一律仍算未填。
+    """
+    for kw, rx in _KEYWORD_RX.items():
+        if rx is not None:
+            if rx.search(tok):
+                return True
+        elif kw.lower() in tok.lower():
+            return True
+    return False
 
 
 def _is_placeholder_token(tok: str, line_prefix: str) -> bool:
     """判断单个 <...> 记号是否为未填占位符。
 
     line_prefix 是该记号在同一行左侧的原文，用于识别比较运算 / 泛型场景。
+
+    判定顺序：
+      1. 合法标签形态 / 比较与泛型 → 一定不是占位符（先排除，避免误伤正文）
+      2. TBD / TODO 之类 → 一定是
+      3. 短尖括号（≤ MAX_PLACEHOLDER_CHARS）→ 是
+      4. 长尖括号但含 43 问关键词 → 仍是未填提示词（防止合并提示词逃逸）
+      5. 其余长尖括号（如长 URL、长标签）→ 不是
     """
     if not _TOLDF_SLOT.match(tok):
         return False
-    if _TODO_LIKE.match(tok):
-        return True
     if _ALLOWED_TAG.match(tok):
         return False
     # 比较运算或泛型：a < b、x <= 1、List<String>
     if _IDENT_CHAR_BEFORE.search(line_prefix):
         return False
-    return True
+    if _TODO_LIKE.match(tok):
+        return True
+    if len(tok) - 2 <= MAX_PLACEHOLDER_CHARS:
+        return True
+    return _token_has_question_keyword(tok)
 
 
 def find_placeholders(body: str) -> list:
     """返回正文中疑似未填的占位符列表（已排除代码围栏内的合法尖括号）。
 
-    判定策略：逐个 <...> 记号看其**行内左侧上下文**——
+    判定策略：逐个 <...> 记号看**长度、内容、行内左侧上下文**三者——
     左侧紧邻标识符字符 → 判为比较运算/泛型，放行；
     记号本身是合法标签形态 → 放行；
-    其余（左侧为空白/冒号/行首，形如 <待填> <your field> <TBD>）→ 判为未填占位符。
+    短尖括号（模板提示词量级）→ 判为未填占位符；
+    长尖括号但含 43 问关键词 → 同样判为未填（合并提示词不构成免费通行证）。
     """
     found = []
     for line in body.splitlines():
-        for m in re.finditer(r"<[^<>\n]{1,60}>", line):
+        for m in re.finditer(r"<[^<>\n]+>", line):
             if _is_placeholder_token(m.group(0), line[: m.start()]):
                 found.append(m.group(0))
     return found
@@ -233,8 +365,8 @@ def check(path: Path) -> tuple:
     body = _strip_fenced(text)
     placeholders = find_placeholders(body)
     unanswered = find_unanswered(body)
-    uncovered = find_uncovered(body)
-    return missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered
+    uncovered, structural = find_uncovered(body)
+    return missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural
 
 
 def main() -> int:
@@ -246,7 +378,7 @@ def main() -> int:
                     help="宽松模式：存在缺失项也返回 0，仅作提示不卡门禁")
     args = ap.parse_args()
 
-    missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered = check(
+    missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural = check(
         Path(args.doc).expanduser().resolve()
     )
 
@@ -273,10 +405,15 @@ def main() -> int:
         shown = ", ".join(uncovered[:MAX_UNCOVERED_SHOWN])
         more = f" …等共 {len(uncovered)} 项" if len(uncovered) > MAX_UNCOVERED_SHOWN else ""
         print(f"    未覆盖: {shown}{more}")
+    if structural:
+        print(f"  分层结构问题: {len(structural)} 项")
+        for s in structural:
+            print(f"    - {s}")
     print(f"  语义项（脚本不判，需你自查）: {GATE_POINTER}")
 
     problems = bool(
-        missing_h or missing_m or unanswered or not has_ledger or uncovered
+        missing_h or missing_m or unanswered or not has_ledger
+        or uncovered or placeholders or structural
     )
     if not problems:
         print("结论: 结构完整")
