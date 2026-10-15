@@ -175,6 +175,7 @@ wiki 的全部范式红线（单页篇幅、两级索引只读、raw/ 只读、s
 - **编码经验（coding 的经验层）**：写入项目内 `<项目>/.harness-kb/learnings.md`（格式与可写位置判定见 coding 技能 `references/evolution.md`「写入位置」）。**包内 coding `references/learnings.md` 只读**——插件目录不可写且写入会被包升级冲掉，不得要求成员写包内。
 - **读取顺序（架构知识）**：先查 wiki 底座编译产物，再回退包内基线 `references/knowledge/index.md`（patterns 已按主题合并，一文件含 2–4 条）。
 - **learnings 合并流程**（P1-4 闭环）：coder / tester 在 SendMessage 回传时附 `candidates: [PK-...: ...]` 候选条目（≤2 条/次），主理人在阶段收尾按 `PK-<域>-<序号>` 去重，写入项目内 `<项目>/.harness-kb/learnings.md`；按 `coding-prompt/references/learnings.md` 的采集协议处理晋升（复现 ≥2 自动 `promoted`）。具体表头与列说明见该文件。
+- **Mode 2 告警汇总**（P3-4 跨 P 状态承继）：每阶段收尾读 `<项目>/.harness-kb/mode2-log.md` 评估告警模式；同 signal ≥3 次升级为 learnings.md 的 PK 候选条目（连同触发上下文）。该机制治独立 agent 上下文中「Mode 2 告警在 P2 完成后即不可见」的根病。
 
 ---
 
