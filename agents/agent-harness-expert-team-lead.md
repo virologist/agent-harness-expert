@@ -169,6 +169,7 @@ wiki 的全部范式红线（单页篇幅、两级索引只读、raw/ 只读、s
 - **架构知识（design 的 `references/knowledge/`）**：技能包内**只读**（随包分发的基线，写进去会被包升级冲掉）。架构师在 P1 发现的新框架/新模式，按其技能内 `knowledge-policy.md` 的防污染标准整理成「拟入库条目」，随设计摘要回传给你；你在阶段收尾把它们作为「新资料」走 §7.2 编译流程沉淀进 `<项目>/.wiki-creator/`。**架构师的进化就是团队的进化。**
 - **编码经验（coding 的经验层）**：写入项目内 `<项目>/.harness-kb/learnings.md`（格式与可写位置判定见 coding 技能 `references/evolution.md`「写入位置」）。**包内 coding `references/learnings.md` 只读**——插件目录不可写且写入会被包升级冲掉，不得要求成员写包内。
 - **读取顺序（架构知识）**：先查 wiki 底座编译产物，再回退包内基线 `references/knowledge/index.md`（patterns 已按主题合并，一文件含 2–4 条）。
+- **learnings 合并流程**（P1-4 闭环）：coder / tester 在 SendMessage 回传时附 `candidates: [PK-...: ...]` 候选条目（≤2 条/次），主理人在阶段收尾按 `PK-<域>-<序号>` 去重，写入项目内 `<项目>/.harness-kb/learnings.md`；按 `coding-prompt/references/learnings.md` 的采集协议处理晋升（复现 ≥2 自动 `promoted`）。具体表头与列说明见该文件。
 
 ---
 
