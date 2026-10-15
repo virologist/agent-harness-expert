@@ -8,9 +8,15 @@ Python 自动把脚本所在目录加入 sys.path，故可直接 `from _root imp
    从 cwd 向上查找项目标记，命中则用 <project-root>/.wiki-creator/，与项目绑定。
 2. 办公智能体环境（无项目概念）：用 ~/.wiki-creator/（全局共享，不绑定特定产品名）。
 3. 任何场景都可用 `--root <path>` 显式覆盖。
+
+团队模式保护（P3-6）：当调用方声明 `WORKBUDDY_CONTEXT=team`（由 agent-harness-expert
+主理人/成员调度时设置），且 cwd 无项目标记时，**禁止**回落全局根 — 显式抛错，
+强制调用方传 `--root` 或在项目内执行。理由：团队流永远在项目根，全局根会与
+其他专家/任务互相污染；显式失败比静默写错地方安全。
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -73,9 +79,19 @@ def detect_wiki_root() -> Path:
 
     - cwd 位于项目内 → <project-root>/.wiki-creator/
     - 否则 → ~/.wiki-creator/（全局共享，不绑定特定产品名）
+
+    团队模式保护（P3-6）：
+    - 调用方声明 `WORKBUDDY_CONTEXT=team` 且 cwd 无项目标记时，**禁止**回落全局根，
+      抛 `RuntimeError`，强制调用方传 `--root` 或在项目内执行。
+    - 其它情况（`standalone` / 未设）维持原行为。
     """
     cwd = Path.cwd()
     for d in [cwd, *cwd.parents]:
         if any((d / m).exists() for m in PROJECT_MARKERS):
             return d / ".wiki-creator"
+    if os.environ.get("WORKBUDDY_CONTEXT", "").strip().lower() == "team":
+        raise RuntimeError(
+            "WORKBUDDY_CONTEXT=team 模式下未探测到项目标记，禁止回落全局根 ~/.wiki-creator/ "
+            "（防跨专家污染）。请在项目根目录内执行，或显式传 --root <project>/.wiki-creator。"
+        )
     return Path.home() / ".wiki-creator"

@@ -37,6 +37,16 @@ description_en: "Builds and maintains a global, project-independent knowledge wi
 
 > **LLM 判断当前环境**：若运行在 Trae/VS Code/Cursor 这类编程助手中且 cwd 位于某项目内（有上述标记），走**项目模式**；若在办公智能体中或 cwd 无项目标记，走**全局模式**。首次创建时若拿不准，问管家节点（用户）“这份 Wiki 放项目里还是放全局？”。
 
+### 2.1 独立用户触发的全局根警告（P3-6）
+
+> **警告 — 独立使用本技能时**（非 `agent-harness-expert` 团队语境，调用方未设 `WORKBUDDY_CONTEXT=team`）：
+>
+> 全局根 `~/.wiki-creator/` 是**所有办公智能体、所有独立任务共用**的目录。当你独立触发 wiki-creator（不经过 agent-harness-expert 团队）且未传 `--root` 时，脚本会自动探测 cwd —— 若不在项目内，会**直接落全局根**，与其他人/其他任务共享同一份 wiki，产生跨任务污染。
+>
+> **强烈建议**：独立使用时，**显式传 `--root <项目>/.wiki-creator/`**（或任何你想独占的目录），不要依赖自动探测回落全局根。仅当你确认本任务就是「跨项目通用知识库」且不需要与其他任务隔离时，才用默认全局根。
+>
+> 团队语境（`agent-harness-expert` 主理人/成员调度）下，`detect_wiki_root()` 已在 `WORKBUDDY_CONTEXT=team` + 无项目标记时**拒绝回落全局根**（抛 `RuntimeError`），强制要求 `--root` 或在项目内执行——这是团队流的硬约束，独立用户不受此保护，故更需主动传 `--root`。
+
 ### 目录结构（两种模式共用，仅根路径不同）
 
 ```

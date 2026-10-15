@@ -398,3 +398,49 @@ def test_parse_raw_json_roundtrip():
         contains(proc.stdout, '"a": 1', "json 内容应原样保留")
     finally:
         ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# P3-6：独立 wiki 触发全局根警告（WORKBUDDY_CONTEXT env 探测）
+# ---------------------------------------------------------------------------
+
+def test_root_standalone_mode_global_fallback_unchanged():
+    """P3-6: 独立用户场景（WORKBUDDY_CONTEXT=standalone 或未设）维持原行为：
+    cwd 无项目标记时仍可回落 ~/.wiki-creator/。"""
+    ws = Workspace()
+    try:
+        proc = run_python(
+            "from pathlib import Path\nfrom _root import detect_wiki_root\n"
+            "print(detect_wiki_root())\n",
+            cwd=ws.path, syspath=[WIKI_SCRIPTS],
+            env={"WORKBUDDY_CONTEXT": "standalone"},
+        )
+        exit_code(proc, 0, "standalone 模式不应抛异常")
+        eq(proc.stdout.strip(), str(Path.home() / ".wiki-creator"),
+           "standalone 模式无项目标记时应维持回落全局根（行为不变）")
+    finally:
+        ws.cleanup()
+
+
+def test_root_team_mode_forbids_global_fallback():
+    """P3-6: 团队模式（WORKBUDDY_CONTEXT=team）+ cwd 无项目标记时，
+    detect_wiki_root() 必须抛 RuntimeError，禁止静默回落全局根。"""
+    ws = Workspace()
+    try:
+        proc = run_python(
+            "from _root import detect_wiki_root\n"
+            "try:\n"
+            "    detect_wiki_root()\n"
+            "    print('NO_RAISE')\n"
+            "except RuntimeError as e:\n"
+            "    print('RAISED', str(e)[:60])\n",
+            cwd=ws.path, syspath=[WIKI_SCRIPTS],
+            env={"WORKBUDDY_CONTEXT": "team"},
+        )
+        exit_code(proc, 0, "子进程应正常退出（异常被捕获打印 RAISED）")
+        eq(proc.stdout.strip().split(" ", 1)[0], "RAISED",
+           "team 模式无项目标记时必须抛 RuntimeError，不得回落全局根")
+        contains(proc.stdout, "WORKBUDDY_CONTEXT=team",
+                 "错误信息应明确提示 team 模式约束，便于排查")
+    finally:
+        ws.cleanup()
