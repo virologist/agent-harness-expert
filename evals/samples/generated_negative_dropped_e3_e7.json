@@ -1,0 +1,14 @@
+{
+  "name": "generated_negative_dropped_e3_e7",
+  "kind": "negative",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 40,
+    "max_unanswered": 0,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：E3 + E7 砍掉 — 期望 41/43 覆盖"
+  }
+}

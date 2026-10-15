@@ -1,0 +1,14 @@
+{
+  "name": "generated_boundary_only_titles",
+  "kind": "boundary",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 0,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：仅 15 标题 — P0-3c 后必须拦下"
+  }
+}

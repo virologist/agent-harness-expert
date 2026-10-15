@@ -1,0 +1,14 @@
+{
+  "name": "generated_negative_keyword_stuffing",
+  "kind": "negative",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 0,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：每问只 1 个关键词（<20 字符）— 期望被 MIN_LINE_CHARS=20 拦下 0/43"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "generated_negative_unfilled_s13",
+  "kind": "negative",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 43,
+    "max_unanswered": 9,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：§13 表格结论列全空 — 期望 43/43 覆盖但 9 处未填"
+  }
+}

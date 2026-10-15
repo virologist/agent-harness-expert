@@ -1,0 +1,14 @@
+{
+  "name": "generated_positive_partial",
+  "kind": "positive",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 4,
+    "max_unanswered": 4,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：§4.1-§4.6 各保留前 60% 但每层正文 < 200 字符（MIN_SECTION_CHARS 阈值）导致除 4.1 段外整层未覆盖。实际产出 5/43 覆盖 + §13 4 处空缺（暴露门禁对 partial 文档不友好的真相：未达 200 字符即整层判空）"
+  }
+}

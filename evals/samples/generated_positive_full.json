@@ -1,0 +1,14 @@
+{
+  "name": "generated_positive_full",
+  "kind": "positive",
+  "source": "generated",
+  "generated_at": "2026-10-15T02:47:22+00:00",
+  "generator": "evals/generate_samples.py",
+  "expectation": {
+    "exit_code": 0,
+    "min_43q_coverage": 43,
+    "max_unanswered": 0,
+    "max_placeholders": 0,
+    "notes": "P3-8 生成：43 问全覆盖、§13 全填、每段 ≥40 字符 — 期望 43/43 + 0 缺"
+  }
+}
