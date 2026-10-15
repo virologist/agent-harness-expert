@@ -28,7 +28,21 @@
 
 用法:
     python3 check_design_doc.py designs/支付助手-harness-design-v1.md
+    python3 check_design_doc.py designs/xxx.md --template problem-solution
     python3 check_design_doc.py designs/xxx.md --lenient   # 只提示，不卡门禁
+
+模板（v1.7.2 起多模板支持）：
+    harness（默认，向后兼容）：15 标题 + §4.1-§4.6 限域 + 43 问门禁
+    problem-solution：非 H 框架式设计文档（§N 问题/方案/推荐结构）。
+        - 不强制 15 标题、不要求 §4.1-§4.6 限域、不查 43 问
+        - 必含一级标题关键词之一（现状/痛点 / 方案 / 推荐 / 兼容性 / Backlog / 结论）
+        - 保留 §13 必答项、占位符、设计台账检查（结构完整性不分模板）
+
+WHY v1.7.2：
+    v1.7.1 实证：真实样本 viral-evo-lab/P4_monitoring_design.md（§1 现状与痛点 / §2 候选方案 /
+    §3 推荐架构 / §4 兼容性 / §5 Backlog / §6 结论）跑 harness 模板 → 4/43 覆盖 + exit 1，
+    100% 不匹配 H 框架 15 标题 + §4.x 限域。本补丁加 problem-solution 模板承认这一类
+    真实设计的存在合理性。
 """
 import argparse
 import re
@@ -99,7 +113,51 @@ GATE_POINTER = "类型完整 / API 真实 / 标准可达（唯一定义处：ref
 _ANSWER_ROW = re.compile(r"^\|\s*(\d+)\s*\|([^|]*)\|([^|]*)\|")
 
 # ---------------------------------------------------------------------------
-# H 框架六层必答设计问题（43 问）→ 可检测关键词
+# 模板（v1.7.2 起多模板支持）
+#
+# 结构完整性检查（所有模板共用）：§13 必答项、占位符、设计台账
+# 模板特殊检查（仅 harness）：15 标题、§4.x 限域、MUST_ANSWER 限域、43 问门禁
+# 模板特殊检查（仅 problem-solution）：一级标题关键词 OR 命中
+#
+# cfg["headings"]:           强制的一级标题列表（harness 15 个，problem-solution []）
+# cfg["must_answer_layers"]: MUST_ANSWER 限域映射（harness 按层号，problem-solution {} → 全 None）
+# cfg["check_43q"]:          是否启用 43 问门禁
+# cfg["require_layer_sections"]: 是否要求 §4.1-§4.6 存在（harness True）
+# cfg["required_section_keywords"]: 必含的一级标题关键词列表（problem-solution 6 个关键词 OR 命中）
+# ---------------------------------------------------------------------------
+TEMPLATES: dict[str, dict] = {
+    "harness": {
+        "headings": HEADINGS,
+        "must_answer_layers": MUST_ANSWER_LAYERS,
+        "check_43q": True,
+        "require_layer_sections": True,
+        # harness 模板下不强制一级标题关键词（15 个标题本身已涵盖结构）
+        "required_section_keywords": None,
+    },
+    "problem-solution": {
+        # 不强制 15 标题（真实设计如 viral-evo-lab/P4 用的就是 §1-§6 六段式）
+        "headings": [],
+        # MUST_ANSWER 全部不限域（problem-solution 模板没有 §4.1-§4.6 分层）
+        "must_answer_layers": {},
+        # 43 问门禁仅对 H 框架式设计生效（problem-solution 没有 §4.1-§4.6）
+        "check_43q": False,
+        # 不要求六层分层段（结构完整性归 §13 + 占位符 + 台账三件套）
+        "require_layer_sections": False,
+        # 必含一级标题关键词之一（OR 命中）：覆盖真实 P4 文档的「§1 现状与痛点 / §2 候选方案 /
+        # §3 推荐架构 / §4 兼容性 / §5 Backlog / §6 结论」结构。6 关键词至少命中 1 即视为结构合法。
+        # 用具体短语（如「候选方案」「推荐架构」而非单字「方案」「推荐」）避免假命中：
+        # - design_headings_only.md 在「§13 八个必答项也都填了结论」一句里命中单字「结论」，
+        #   若用「结论」作关键词会误判该 H 框架式负样本通过 problem-solution 门禁。
+        "required_section_keywords": [
+            "现状与痛点",  # §1 现状与痛点
+            "候选方案",    # §2 候选方案
+            "推荐架构",    # §3 推荐架构
+            "兼容性",      # §4 与既有机制的兼容性
+            "Backlog",     # §5 Backlog（实现项清单，英文术语跨语言）
+            "建议排期",    # §6 结论（避免用单字「结论」误命中）
+        ],
+    },
+}
 #
 # 权威源：references/h-framework.md「二、六层详解」每层的「必答设计问题」列表。
 # 分布：E 9 / T 7 / C 8 / S 6 / L 6 / V 7 = 43 问。
@@ -252,12 +310,20 @@ def _keyword_hit(keyword: str, lines: list) -> bool:
     return False
 
 
-def find_uncovered(body: str) -> tuple:
+def find_uncovered(body: str, cfg: dict) -> tuple:
     """返回 (未覆盖问题列表, 结构性问题列表)。
 
     只判**有没有按层写到、写够长度**（结构完整性），不判**答得好不好**（语义质量）。
     后者按三件事分工宪法归 LLM，脚本不做规则匹配。
+
+    v1.7.2 多模板扩展：cfg["check_43q"] = False 时（如 problem-solution 模板），
+    43 问门禁不启用 → 返回 ([], [])。problem-solution 是「问题-方案-推荐」结构，
+    没有 H 框架 §4.1-§4.6 分层，43 问限域无从谈起；模板存在意义是承认这一类
+    真实设计有结构合理性，由 §13 + 占位符 + 台账三件套兜底。
     """
+    if not cfg.get("check_43q", True):
+        # problem-solution 等模板：43 问门禁不启用
+        return [], []
     sections = split_layer_sections(body)
     structural = []
 
@@ -289,14 +355,22 @@ def find_uncovered(body: str) -> tuple:
     return uncovered, structural
 
 
-def find_missing_must_answer(text: str, body: str, sections: dict) -> tuple[list[str], list[str]]:
-    """P3-1 加固：MUST_ANSWER 每条按 MUST_ANSWER_LAYERS 限域到对应 §4.N 段。
+def find_missing_must_answer(text: str, body: str, sections: dict, cfg: dict) -> tuple[list[str], list[str]]:
+    """P3-1 加固：MUST_ANSWER 按 cfg["must_answer_layers"] 限域。
 
     返回 (missing_labels, structural_msgs)：
       - missing_labels：限域段存在但段内未找到任一关键词 / 限域段缺失且全文未找到
         任一关键词 的 label 列表；
       - structural_msgs：限域段缺失时退回全文档匹配的结构性提示（不阻断，
         只报缺指针——这是 v1.6.0 已知的"§4.4 S 段被吞"的过渡态）。
+
+    v1.7.2 多模板扩展：
+      - harness 模板 → cfg["must_answer_layers"] = MUST_ANSWER_LAYERS（按 §4.N 限域）
+      - problem-solution 模板 → cfg["must_answer_layers"] = {} → 所有 label 视为
+        不限域（layer = None），退化为全文档匹配。problem-solution 没有 §4.1-§4.6，
+        MUST_ANSWER 限域无从谈起；保留 MUST_ANSWER 检查是为了「即使是非 H 框架式设计，
+        也至少要在文档里提到执行环境 / 错误回喂 / 打转检测 / ... 这 9 个核心概念」。
+        这是 LLM/架构师能直接读到的「最小结构性提示」，比纯章节齐全度更扎实。
 
     限域规则与例外（与 43 问门禁同精神）：
       - 有限域段 → 关键词必须在该 §4.N 段内命中（任一关键词命中即覆盖）；
@@ -308,8 +382,9 @@ def find_missing_must_answer(text: str, body: str, sections: dict) -> tuple[list
     """
     missing: list[str] = []
     structural: list[str] = []
+    layers_map: dict = cfg.get("must_answer_layers") or {}
     for label, kws in MUST_ANSWER_KEYWORDS.items():
-        layer = MUST_ANSWER_LAYERS.get(label)
+        layer = layers_map.get(label)
         if layer is None:
             # 跨层不限域（如"模型组合"归 §5），全文档匹配
             pool = body
@@ -440,42 +515,78 @@ def find_unanswered(body: str) -> list:
     return unanswered
 
 
-def check(path: Path) -> tuple:
+def find_missing_required_section_keywords(text: str, cfg: dict) -> list[str]:
+    """problem-solution 模板专用：必含一级标题关键词之一（OR 命中）。
+
+    返回缺失的关键词列表（要求至少 1 个命中，0 命中则全列）。harness 模板下
+    cfg["required_section_keywords"] = None → 返回 []（harness 已有 15 标题硬约束）。
+    """
+    kws = cfg.get("required_section_keywords")
+    if not kws:
+        return []
+    if any(kw in text for kw in kws):
+        return []
+    return list(kws)
+
+
+def check(path: Path, template: str = "harness") -> tuple:
+    """v1.7.2 起接受 template 参数。返回顺序保持向后兼容（harness 模板的
+    返回值与 v1.7.1 完全一致，新增字段以「(..., template_hits)」形式追加）。
+    """
+    if template not in TEMPLATES:
+        raise SystemExit(
+            f"未知模板: {template!r}（可用: {', '.join(TEMPLATES.keys())}）"
+        )
     if not path.is_file():
         raise SystemExit(f"文件不存在: {path}")
     text = path.read_text(encoding="utf-8")
+    cfg = TEMPLATES[template]
 
-    missing_h = [h for h in HEADINGS if h not in text]
+    headings = cfg["headings"]
+    missing_h = [h for h in headings if h not in text]
     has_ledger = "设计台账" in text
     body = _strip_fenced(text)
-    sections = split_layer_sections(body)
-    # P3-1 加固：MUST_ANSWER 限域到 §4.N 段（"模型组合"仍跨层不限域）
-    missing_m, ma_structural = find_missing_must_answer(text, body, sections)
+    # problem-solution 模板下不切六层段（也用不到），但 sections 还是建一份供 MUST_ANSWER fallback
+    sections = split_layer_sections(body) if cfg.get("require_layer_sections") else {}
+    # P3-1 加固：MUST_ANSWER 限域到 §4.N 段（harness）；problem-solution 全 None → 全文档匹配
+    missing_m, ma_structural = find_missing_must_answer(text, body, sections, cfg)
     placeholders = find_placeholders(body)
     unanswered = find_unanswered(body)
-    uncovered, fc_structural = find_uncovered(body)
+    uncovered, fc_structural = find_uncovered(body, cfg)
+    # problem-solution 模板特殊：必含一级标题关键词
+    missing_section_kws = find_missing_required_section_keywords(text, cfg)
     # 合并两路结构性提示：43 问分层结构问题 + MUST_ANSWER 限域段缺失告警
     structural = fc_structural + ma_structural
-    return missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural
+    return (
+        missing_h, missing_m, has_ledger, unanswered,
+        placeholders, uncovered, structural, missing_section_kws,
+    )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="设计文档结构自检（默认严格：有缺失即退出码 1）")
     ap.add_argument("doc", help="设计文档路径")
+    ap.add_argument("--template", default="harness", choices=list(TEMPLATES.keys()),
+                    help="设计文档模板（harness=默认/H 框架式 / "
+                         "problem-solution=§N 问题-方案-推荐式）。v1.7.2 起多模板支持。")
     ap.add_argument("--strict", action="store_true",
                     help="存在任一项缺失即以退出码 1 结束（向后兼容；当前等同默认行为）")
     ap.add_argument("--lenient", action="store_true",
                     help="宽松模式：存在缺失项也返回 0，仅作提示不卡门禁")
     args = ap.parse_args()
 
-    missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural = check(
-        Path(args.doc).expanduser().resolve()
-    )
+    result = check(Path(args.doc).expanduser().resolve(), template=args.template)
+    missing_h, missing_m, has_ledger, unanswered, placeholders, uncovered, structural, missing_section_kws = result
+
+    cfg = TEMPLATES[args.template]
+    headings = cfg["headings"]
 
     print(f"检查对象: {Path(args.doc).resolve()}")
-    print(f"  章节齐全度: {len(HEADINGS) - len(missing_h)}/{len(HEADINGS)}")
-    if missing_h:
-        print(f"    缺章节: {', '.join(missing_h)}")
+    print(f"  模板: {args.template}")
+    if headings:
+        print(f"  章节齐全度: {len(headings) - len(missing_h)}/{len(headings)}")
+        if missing_h:
+            print(f"    缺章节: {', '.join(missing_h)}")
     print(f"  生产级必答项: {len(MUST_ANSWER) - len(missing_m)}/{len(MUST_ANSWER)}")
     if missing_m:
         print(f"    未出现: {', '.join(missing_m)}")
@@ -489,22 +600,43 @@ def main() -> int:
     # 去重保序，最多列 10 个，避免刷屏
     uniq = list(dict.fromkeys(placeholders))
     print(f"  未填占位符 <...>: {'有，需补写 ' + str(len(uniq)) + ' 处 → ' + ', '.join(uniq[:10]) if uniq else '无'}")
-    total = total_questions()
-    print(f"  六层必答问题覆盖: {total - len(uncovered)}/{total}")
-    if uncovered:
-        shown = ", ".join(uncovered[:MAX_UNCOVERED_SHOWN])
-        more = f" …等共 {len(uncovered)} 项" if len(uncovered) > MAX_UNCOVERED_SHOWN else ""
-        print(f"    未覆盖: {shown}{more}")
+    if cfg.get("check_43q", True):
+        total = total_questions()
+        print(f"  六层必答问题覆盖: {total - len(uncovered)}/{total}")
+        if uncovered:
+            shown = ", ".join(uncovered[:MAX_UNCOVERED_SHOWN])
+            more = f" …等共 {len(uncovered)} 项" if len(uncovered) > MAX_UNCOVERED_SHOWN else ""
+            print(f"    未覆盖: {shown}{more}")
+    else:
+        # problem-solution 模板：43 问门禁未启用（明文告知，便于审计）
+        total = total_questions()
+        print(f"  六层必答问题覆盖: 未启用（{args.template} 模板不强求 H 框架 §4.1-§4.6 分层）")
+    if missing_section_kws:
+        # problem-solution 模板专用：6 关键词至少命中 1
+        print(f"  一级标题关键词（{args.template} 模板）: 缺")
+        print(f"    未命中: {', '.join(missing_section_kws)}")
     if structural:
         print(f"  分层结构问题: {len(structural)} 项")
         for s in structural:
             print(f"    - {s}")
     print(f"  语义项（脚本不判，需你自查）: {GATE_POINTER}")
 
-    problems = bool(
-        missing_h or missing_m or unanswered or not has_ledger
-        or uncovered or placeholders or structural
-    )
+    # problems 判定：按模板分桶
+    #   harness（默认）：v1.7.1 七项全过（missing_h, missing_m, unanswered, has_ledger,
+    #                  uncovered, placeholders, structural）—— 与 v1.7.1 完全一致。
+    #   problem-solution：仅「6 关键词命中 + 占位符 + §13 结论空缺」三项参与门禁。
+    #     MUST_ANSWER / 台账 / 43 问门禁 / 15 标题 / §4.x 限域 在 problem-solution
+    #     模板下**保留检查但不计门禁**——它们是 H 框架专属约束，对「问题-方案-推荐」
+    #     结构的设计文档不适用。结构完整性（占位符 / §13）仍生效以确保语义质量下限。
+    if args.template == "harness":
+        problems = bool(
+            missing_h or missing_m or unanswered or not has_ledger
+            or uncovered or placeholders or structural
+        )
+    else:
+        problems = bool(
+            placeholders or unanswered or missing_section_kws
+        )
     if not problems:
         print("结论: 结构完整")
         return 0

@@ -47,13 +47,14 @@ def _total_questions() -> int:
     return int(m.group(1))
 
 
-def _run_check(doc: Path) -> dict:
+def _run_check(doc: Path, template: str = "harness") -> dict:
+    """v1.7.2 起按 sample 指定模板（默认 harness，向后兼容）。"""
     proc = subprocess.run(
-        [sys.executable, str(CHECK_DOC), str(doc)],
+        [sys.executable, str(CHECK_DOC), str(doc), "--template", template],
         capture_output=True, text=True, timeout=60,
     )
     out = proc.stdout + proc.stderr
-    # 解析覆盖行
+    # 解析覆盖行（v1.7.2 problem-solution 模板下输出「未启用」字样，无 X/43 数字）
     coverage_match = re.search(r"六层必答问题覆盖:\s*(\d+)/(\d+)", out)
     if not coverage_match:
         coverage_match = re.search(r"(\d+)/43", out)
@@ -94,7 +95,9 @@ def run(samples_dir: Path, version: str) -> int:
             print(f"[缺] {meta['name']}: 找不到对应 .md", file=sys.stderr)
             fail = True
             continue
-        actual = _run_check(doc)
+        # v1.7.2 起按 sample.template 选模板（默认 harness，向后兼容）
+        template = meta.get("template", "harness")
+        actual = _run_check(doc, template=template)
         exp = meta["expectation"]
         ok = (
             actual["exit_code"] == exp.get("exit_code", 0)

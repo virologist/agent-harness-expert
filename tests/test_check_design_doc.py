@@ -12,11 +12,13 @@ from _harness import (
     CHECK_DOC,
     DESIGN_TEMPLATE,
     FIXTURES,
+    REPO_ROOT,
     Workspace,
     contains,
     eq,
     exit_code,
     is_true,
+    not_contains,
     run,
 )
 
@@ -26,6 +28,7 @@ MISSING_SECTIONS = FIXTURES / "design_missing_sections.md"
 EMPTY_CONCLUSIONS = FIXTURES / "design_empty_conclusions.md"
 PLACEHOLDER = FIXTURES / "design_placeholder.md"
 HEADINGS_ONLY = FIXTURES / "design_headings_only.md"
+REAL_P4 = REPO_ROOT / "evals/samples/real_p4_monitoring.md"
 
 _COVERAGE_RE = re.compile(r"六层必答问题覆盖:\s*(\d+)/(\d+)")
 
@@ -480,17 +483,81 @@ def test_p31_must_answer_cross_layer_unbounded():
         # 在「模型组合」出现在文档中则不限域命中 -> 该项覆盖。
         empty_body = mod._strip_fenced("# 测试\n无任何关键词。\n")
         empty_sections = mod.split_layer_sections(empty_body)
-        missing, _ = mod.find_missing_must_answer("", empty_body, empty_sections)
+        missing, _ = mod.find_missing_must_answer("", empty_body, empty_sections, mod.TEMPLATES["harness"])
         contains(" ".join(missing), "模型组合",
                  "无任何关键词的文档里「模型组合」应被记为缺失")
         # 给一具含「模型组合」的极简 body
         hit_body = mod._strip_fenced("# 测试\n## 5. 模型组合与任务分派\n模型组合按档位分。\n")
         hit_sections = mod.split_layer_sections(hit_body)
-        missing2, _ = mod.find_missing_must_answer("", hit_body, hit_sections)
+        missing2, _ = mod.find_missing_must_answer("", hit_body, hit_sections, mod.TEMPLATES["harness"])
         not_in = "模型组合" not in missing2
         is_true(not_in, "「模型组合」出现在 §5 任意位置不限域命中，应不在缺失列表")
     finally:
         ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# v1.7.2 多模板支持：check_design_doc.py 加 --template 参数
+# ---------------------------------------------------------------------------
+
+def test_v172_template_harness_default_backward_compat():
+    """v1.7.2 加固：harness 模板是默认（不传 --template 等同 --template harness），
+    向后兼容 v1.7.1 行为：完整文档 exit 0 + 43/43 + 章节齐全度 15/15。
+    """
+    proc = run(CHECK_DOC, [FULL])
+    exit_code(proc, 0, "默认模板= harness，完整文档应通过")
+    contains(proc.stdout, "模板: harness", "默认模板行应明示 harness")
+    contains(proc.stdout, "章节齐全度: 15/15", "默认模板输出章节齐全度行")
+    contains(proc.stdout, "六层必答问题覆盖: 43/43", "默认模板输出 43 问覆盖行")
+
+    proc_old = run(CHECK_DOC, [FULL, "--template", "harness"])
+    exit_code(proc_old, 0, "显式 --template harness 仍通过")
+    contains(proc_old.stdout, "模板: harness", "显式模板行应明示 harness")
+
+
+def test_v172_template_problem_solution_real_p4_exit_zero():
+    """v1.7.2 加固：real_p4_monitoring.md（viral-evo-lab P4 真实设计）走
+    problem-solution 模板应 exit 0、43 问门禁未启用、不限域（覆盖数=0）。
+
+    v1.7.1 实证：同一份用 harness 模板跑 → 4/43 + exit 1，暴露 H 框架与
+    真实设计 gap。v1.7.2 加 problem-solution 模板承认这一类真实设计结构合理性。
+    """
+    proc = run(CHECK_DOC, [REAL_P4, "--template", "problem-solution"])
+    exit_code(proc, 0, "real_p4_monitoring 用 problem-solution 模板应通过门禁")
+    contains(proc.stdout, "模板: problem-solution", "应明示 problem-solution 模板")
+    contains(proc.stdout, "六层必答问题覆盖: 未启用",
+             "problem-solution 模板 43 问门禁未启用，明文告知")
+    not_contains(proc.stdout, "缺章节",
+                 "problem-solution 模板不强制 15 标题，不应输出「缺章节」")
+    contains(proc.stdout, "结论: 结构完整", "real_p4 走 problem-solution 应结论完整")
+
+
+def test_v172_template_problem_solution_headings_only_still_exit_one():
+    """v1.7.2 加固：design_headings_only.md 用 problem-solution 模板仍 exit 1。
+
+    原因：HEADINGS_ONLY fixture 只有 §1-§15 H 框架式标题，**没有任何一级关键词**
+    （现状/痛点/方案/推荐/兼容性/Backlog/结论）→ missing_section_kws 6 项全列，
+    problems=True → exit 1。占位符/台账/§13 等结构完整性检查也保留，因此
+    problem-solution 模板**不是放行**——它只是不查 H 框架 43 问。
+    """
+    proc = run(CHECK_DOC, [HEADINGS_ONLY, "--template", "problem-solution"])
+    exit_code(proc, 1, "HEADINGS_ONLY 用 problem-solution 模板仍应 exit 1（缺关键词）")
+    contains(proc.stdout, "模板: problem-solution", "应明示 problem-solution 模板")
+    contains(proc.stdout, "一级标题关键词（problem-solution 模板）: 缺",
+             "应输出 problem-solution 模板一级标题关键词缺失行")
+
+
+def test_v172_template_problem_solution_missing_sections_still_exit_one():
+    """v1.7.2 加固：design_missing_sections.md 用 problem-solution 模板仍 exit 1。
+
+    原因：MISSING_SECTIONS fixture 只有 §1 + §4.1-§4.2，无 §13 / 无占位符 / 无
+    「现状与痛点」「方案」「推荐」等关键词 → missing_section_kws 非空 → exit 1。
+    """
+    proc = run(CHECK_DOC, [MISSING_SECTIONS, "--template", "problem-solution"])
+    exit_code(proc, 1, "MISSING_SECTIONS 用 problem-solution 模板仍应 exit 1")
+    contains(proc.stdout, "模板: problem-solution", "应明示 problem-solution 模板")
+    contains(proc.stdout, "一级标题关键词（problem-solution 模板）: 缺",
+             "应输出 problem-solution 模板一级标题关键词缺失行")
 
 
 def test_p31_must_answer_missing_layer_section_falls_back_to_full_doc():
@@ -543,7 +610,7 @@ def test_p31_must_answer_missing_layer_section_falls_back_to_full_doc():
         sections = mod.split_layer_sections(body_no_S)
         # §4.4 S 段应不在（确认测试前提成立）
         is_true(4 not in sections, "测试前提：§4.4 S 段必须不在")
-        missing, structural = mod.find_missing_must_answer("", body_no_S, sections)
+        missing, structural = mod.find_missing_must_answer("", body_no_S, sections, mod.TEMPLATES["harness"])
         # §4.4 段缺失时，「记忆治理」「幂等」「版本绑定」退回全文档匹配
         # 应在 body 中存在 → 不在 missing 里
         for kw in ("记忆治理", "幂等", "版本绑定"):
@@ -567,7 +634,7 @@ def test_p31_must_answer_missing_layer_section_falls_back_to_full_doc():
 """)
         sections_with_S = mod.split_layer_sections(body_with_empty_S)
         is_true(4 in sections_with_S, "测试前提：§4.4 S 段必须存在")
-        missing2, _ = mod.find_missing_must_answer("", body_with_empty_S, sections_with_S)
+        missing2, _ = mod.find_missing_must_answer("", body_with_empty_S, sections_with_S, mod.TEMPLATES["harness"])
         # 「记忆治理」段内无 → 应记为缺失（不退回全文档）
         is_true("记忆治理" in missing2,
                 "有限域段但段内无关键词时，必须记为缺失（不退回全文档）")

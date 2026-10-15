@@ -1,0 +1,14 @@
+{
+  "name": "real_p4_monitoring-negative-edges-removed",
+  "kind": "negative",
+  "template": "problem-solution",
+  "source": "derived",
+  "real_source": "由 real_p4_monitoring.md 衍生（移除 problem-solution 模板 6 关键词：现状与痛点 / 候选方案 / 推荐架构 / 兼容性 / Backlog / 建议排期）",
+  "expectation": {
+    "exit_code": 1,
+    "min_43q_coverage": 0,
+    "max_unanswered": 999,
+    "max_placeholders": 999
+  },
+  "notes": "v1.7.2 负样本：基于 viral-evo-lab P4 真实设计改写，移除 problem-solution 模板要求的 6 个一级关键词。期望 problem-solution 模板下 exit 1（一级标题关键词门禁失效：6 关键词全部缺）。harness 模板下 exit 0（缺 6 关键词不参与 harness 门禁，但 43 问门禁被绕过——这是模板分桶的预期效果）。"
+}
