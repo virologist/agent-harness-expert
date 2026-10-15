@@ -66,8 +66,13 @@ def _iter_dirs(root: Path):
 
 
 def _search_skill_dirs() -> list:
-    """在合理根目录中搜索 skills/<SKILL_NAME>/ 目录。"""
-    roots = [Path.cwd().resolve(), Path.home() / ".workbuddy"]
+    """在合理根目录中搜索 skills/<SKILL_NAME>/ 目录（P2-4：去掉 cwd 全盘 walk）。
+
+    仅在 ~/.workbuddy 根下搜索（这是 WORKBUDDY 体系约定的插件安装根）。
+    移除 Path.cwd() 以避免用户会话目录被全盘遍历——违背"禁止相对路径"
+    纪律且范围不可控（L60 MAX_SCAN 仅缓解症状，不治本）。
+    """
+    roots = [Path.home() / ".workbuddy"]
     hits = []
     for root in roots:
         if not root.is_dir():
