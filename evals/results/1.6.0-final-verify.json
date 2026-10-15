@@ -1,0 +1,247 @@
+{
+  "version": "1.6.0-final-verify",
+  "total_questions": 0,
+  "samples": [
+    {
+      "name": "design_boundary_headings_only",
+      "kind": "boundary",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_empty_conclusions",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 8
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_from_template",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 0,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 0,
+        "min_43q_coverage": 43,
+        "max_unanswered": 0,
+        "max_placeholders": 0
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_full",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 0,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 0,
+        "min_43q_coverage": 43,
+        "max_unanswered": 0,
+        "max_placeholders": 0
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_headings_only",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_missing_sections",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "design_placeholder",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 22,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 999,
+        "max_placeholders": 999
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_boundary_only_titles",
+      "kind": "boundary",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 0,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：仅 15 标题 — P0-3c 后必须拦下"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_negative_dropped_e3_e7",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 41,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 40,
+        "max_unanswered": 0,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：E3 + E7 砍掉 — 期望 41/43 覆盖"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_negative_keyword_stuffing",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 0,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 0,
+        "max_unanswered": 0,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：每问只 1 个关键词（<20 字符）— 期望被 MIN_LINE_CHARS=20 拦下 0/43"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_negative_unfilled_s13",
+      "kind": "negative",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 9
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 43,
+        "max_unanswered": 9,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：§13 表格结论列全空 — 期望 43/43 覆盖但 9 处未填"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_positive_full",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 0,
+        "coverage": 43,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 0,
+        "min_43q_coverage": 43,
+        "max_unanswered": 0,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：43 问全覆盖、§13 全填、每段 ≥40 字符 — 期望 43/43 + 0 缺"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "name": "generated_positive_partial",
+      "kind": "positive",
+      "actual": {
+        "exit_code": 1,
+        "coverage": 5,
+        "total": 43,
+        "placeholders": 0,
+        "unanswered": 0
+      },
+      "expectation": {
+        "exit_code": 1,
+        "min_43q_coverage": 4,
+        "max_unanswered": 4,
+        "max_placeholders": 0,
+        "notes": "P3-8 生成：§4.1-§4.6 各保留前 60% 但每层正文 < 200 字符（MIN_SECTION_CHARS 阈值）导致除 4.1 段外整层未覆盖。实际产出 5/43 覆盖 + §13 4 处空缺（暴露门禁对 partial 文档不友好的真相：未达 200 字符即整层判空）"
+      },
+      "verdict": "PASS"
+    }
+  ],
+  "all_pass": true
+}
