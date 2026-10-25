@@ -133,23 +133,35 @@ def test_promote_noop_when_no_changes(tmp_learnings_noop):
 # === fixtures ===
 
 import pytest
+import tempfile
 
 
 @pytest.fixture
-def tmp_learnings(tmp_path):
-    """pending + 1 + pending + 3 + promoted + 5 + promoted + 1 — 期望 2 变更。"""
-    p = tmp_path / "learnings.md"
+def tmp_learnings():
+    """手写临时文件，避开 pytest tmp_path 在 WorkBuddy 沙箱的 EEXIST bug。"""
+    import os
+    fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-")
+    os.close(fd)
+    p = Path(path)
     p.write_text(SAMPLE_TABLE, encoding="utf-8")
-    return p
+    yield p
+    p.unlink(missing_ok=True)
+    report = p.with_suffix(".promote-report.json")
+    report.unlink(missing_ok=True)
 
 
 @pytest.fixture
-def tmp_learnings_noop(tmp_path):
+def tmp_learnings_noop():
     """全部已符合现状 → 0 变更。"""
-    md = """| Pattern-Key | 首次见 | 复现数 | 状态 | 来源 | 简述 |
-|---|---|---|---|---|---|
-| PK-x-1 | 2026-10-15 | 1 | pending | coder | foo |
-"""
-    p = tmp_path / "learnings.md"
-    p.write_text(md, encoding="utf-8")
-    return p
+    import os
+    fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-noop-")
+    os.close(fd)
+    p = Path(path)
+    p.write_text(
+        "| Pattern-Key | 首次见 | 复现数 | 状态 | 来源 | 简述 |\n"
+        "|---|---|---|---|---|---|\n"
+        "| PK-x-1 | 2026-10-15 | 1 | pending | coder | foo |\n",
+        encoding="utf-8",
+    )
+    yield p
+    p.unlink(missing_ok=True)

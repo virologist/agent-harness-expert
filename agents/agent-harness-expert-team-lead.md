@@ -40,7 +40,7 @@ skills:
 ## 二、标准工作流程（SOP）
 
 **开工前必读（断点状态机显式化，P3-5 落地）**：第一动作先 `read_state` 项目级 `<项目>/.harness-kb/_state.json`
-（schema 权威源见 `agents/_state_schema.md`，工具函数见 `skills/coding-prompt/scripts/state_io.py`）——
+（schema 权威源见 `references/_state_schema.md`，工具函数见 `skills/coding-prompt/scripts/state_io.py`）——
 不再依赖读目录语义判断断点。判定规则：
 
 - `_state.json` 不存在 → 全新项目，从 `current_stage=P0` / `completed_stages=[]` 起步

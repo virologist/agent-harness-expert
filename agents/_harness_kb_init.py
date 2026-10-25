@@ -99,7 +99,7 @@ MODE2_LOG_TEMPLATE = """# Mode 2 告警日志（P3-4 跨 P 状态承继）
 | _（待首批告警）_ | | |
 """
 
-# _state.json 最小占位 — schema 由 P3-5 协议（agents/_state_schema.md）接管升级
+# _state.json 最小占位 — schema 由 P3-5 协议（references/_state_schema.md）接管升级
 # 字段含义：
 #   stage: 当前阶段（None 表示未启动；P3-5 接管后填 P0/P1/P2/P3/P4 等）
 #   last_updated: 最近一次状态写入时间（UTC ISO 8601）；首次 init 填初始化时间

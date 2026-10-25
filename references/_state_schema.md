@@ -35,6 +35,6 @@
 
 ## 维护协议
 
-- 字段增删必须同步更新本文件 v 版本号与 `agents/_handoff_schema.md` 的引用
+- 字段增删必须同步更新本文件 v 版本号与 `references/_handoff_schema.md` 的引用
 - `_state.json` 落到 `.harness-kb/`，与 `learnings.md` / `mode2-log.md` 同目录，便于项目级资产统一治理
 - **不得**把 `_state.json` 提交进仓库——它是工作区运行时状态，跨机器无意义

@@ -1,6 +1,6 @@
 """项目级断点状态 I/O（P3-5 落地）。
 
-权威 schema 见 `agents/_state_schema.md`：
+权威 schema 见 `references/_state_schema.md`：
 - 读写文件：`<project_dir>/.harness-kb/_state.json`
 - current_stage 取值：P0 / P1 / P2 / P3 / P4 / complete / aborted
 - 必填字段: project / current_stage / completed_stages / last_run_at

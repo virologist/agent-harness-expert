@@ -1,6 +1,6 @@
 # Agent Harness 全流程研发专家团
 
-> **版本**：v1.7.1（30 commit / 131 文件 / pytest 78/78 / evals 14/14 / validate 0 errors）
+> **版本**：v1.8.0（35 commit / 144 文件 / pytest 89/89 / evals 16/16 / validate 0 errors）
 > **三源部署**：my-experts HEAD + GitHub push + OneDrive 镜像
 > **v1.1 报告 29 项短板 100% 处置**——含跳过 2 项的转化落地（详见 `outputs/agent-harness-expert-全面诊断报告-v1.2.md`）
 > **跨包元教训**：9 条 ML-1 ~ ML-9 见 `evals/META_LESSONS.md`
@@ -13,8 +13,8 @@ Team 型（多角色协作团队）
 
 ## 三道门禁
 
-- **pytest**：78/78 通过（v1.5.2 baseline 0）
-- **evals benchmark**：14/14 PASS（7 fixtures + 6 generated + 1 real sample）
+- **pytest**：89/89 通过（v1.5.2 baseline 0）
+- **evals benchmark**：16/16 PASS（7 fixtures + 6 generated + 3 real samples）
 - **validate_expert**：0 errors（v1.5.2 baseline 3 errors）
 
 ## 门禁使用
@@ -47,6 +47,8 @@ python3 evals/generate_samples.py
 | 工具 | `2a58eed` | Mode 2 告警落 `<项目>/.harness-kb/mode2-log.md` |
 | 真实样本 | `aca043f` | viral-evo-lab P4_monitoring_design.md（127 行真实设计） |
 | 路线图 | `361e738` / `aca043f` | v1.6.0 + v1.7.1 |
+| 多模板 | `eb50394` | v1.7.2：check_design_doc 加 --template 参数（harness / problem-solution） |
+| 自进化 | `b015671` / `26a936a` | v1.8：promoted 规则晋升机制（复现数 ≥2 自动晋升 + demote 防护） |
 
 ## 团队成员
 
