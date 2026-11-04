@@ -38,7 +38,7 @@ python3 evals/generate_samples.py
 
 | 范围 | commit | 摘要 |
 |---|---|---|
-| 规范 | `6052a9e` | profession 对齐 + settings.json |
+| 规范 | `6052a9e` | profession 对齐（agent 名由 `plugin.json` 的 `agentName`/`agents[]` 解析，不依赖 `settings.json`） |
 | 门禁 | `98887be` / `de246e2` | 退出码反转 + 43 问覆盖 + 加固 |
 | 门禁 | `e00d920` | MUST_ANSWER 限域到 §4.1-§4.6 |
 | 协作 | `79def5c` | 撞限协议下沉四成员 |
