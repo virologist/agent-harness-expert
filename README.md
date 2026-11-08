@@ -1,6 +1,7 @@
 # Agent Harness 全流程研发专家团
 
-> **版本**：v1.8.0（35 commit / 144 文件 / pytest 89/89 / evals 16/16 / validate 0 errors）
+> **版本**：v1.8.1（36 commit / pytest 89/89 / evals 16/16 / validate 0 errors）
+> **v1.8.1 变更**：恢复包根 `settings.json`（官方校验 1 error → 0 error）+ wiki lint 空目录明确报错
 > **三源部署**：my-experts HEAD + GitHub push + OneDrive 镜像
 > **v1.1 报告 29 项短板 100% 处置**——含跳过 2 项的转化落地（详见 `outputs/agent-harness-expert-全面诊断报告-v1.2.md`）
 > **跨包元教训**：9 条 ML-1 ~ ML-9 见 `evals/META_LESSONS.md`

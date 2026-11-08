@@ -85,6 +85,16 @@ def lint(root: Path) -> dict:
 
     pages = load_pages(wiki_dir)
     schema = load_schema(wiki_dir)
+
+    # 空目录检查（v1.8.1）：wiki/ 存在但没有页面（schema.json 缺失或无 topics/实体），
+    # 说明知识底座只 init 了骨架还没沉淀内容。此时跑全套检查只会产出误导性的
+    # 「全 0 结果」——明确报告空态，比静默返回一堆空数组更有诊断价值。
+    if not pages:
+        return {
+            "error": "wiki/ 为空（没有任何页面）",
+            "hint": "知识底座尚未沉淀内容：先把阶段产物经 parse_raw.py 入库（见 SKILL.md §4.2 编译流程），再跑 lint。",
+        }
+
     schema_topics = set(schema["topics"].keys())
     entity_types = schema["entity_types"]
     cur_ver = schema["schema_version"]
