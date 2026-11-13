@@ -5,7 +5,7 @@
 
 ## 样本来源（v1.7.2 起三类）
 
-### 1. fixtures（7 个，symlink 到 `tests/fixtures/`）—— harness 模板
+### 1. fixtures（7 个：6 个 symlink 到 `tests/fixtures/` + 1 个实体文件 `design_boundary_headings_only.md`）—— harness 模板
 
 P0-3c 加固门禁时定义的 6 个验收锚点 + 1 个 v1.2 报告新增的 boundary 样本。**本质上是「门禁自检的样本」，反映 P0-3c 加固是否生效——自证循环**。每版发布必须保持这 7 个全 PASS。
 
@@ -67,7 +67,7 @@ v1.7.2 加 problem-solution 模板承认真实设计结构（`§1 现状与痛�
 
 ```bash
 # 跑当前所有样本（按各自 .json 的 template 字段选模板，默认 harness）
-python3 evals/run_benchmark.py --version "1.7.2"
+python3 evals/run_benchmark.py --version vX.Y.Z
 
 # 重生成所有 generated 样本（覆盖式）
 python3 evals/generate_samples.py

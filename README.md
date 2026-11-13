@@ -1,9 +1,9 @@
 # Agent Harness 全流程研发专家团
 
-> **版本**：v1.8.1（36 commit / pytest 89/89 / evals 16/16 / validate 0 errors）
+> **版本**：v1.8.1（pytest 89/89 / evals 16/16 / validate 0 errors）
 > **v1.8.1 变更**：恢复包根 `settings.json`（官方校验 1 error → 0 error）+ wiki lint 空目录明确报错
 > **三源部署**：my-experts HEAD + GitHub push + OneDrive 镜像
-> **v1.1 报告 29 项短板 100% 处置**——含跳过 2 项的转化落地（详见 `outputs/agent-harness-expert-全面诊断报告-v1.2.md`）
+> **v1.1 报告 29 项短板 100% 处置**——含跳过 2 项的转化落地
 > **跨包元教训**：9 条 ML-1 ~ ML-9 见 `evals/META_LESSONS.md`
 
 把用户的一个想法、或某个领域的最新研究，编排成**可落地的 agent**。基于通用框架 **H=(E,T,C,S,L,V)+P**（Harness = 六层功能 + 架构范式 P；层定义详解见包内 `skills/agent-harness-architect/references/h-framework.md`），由主理人编排四名专职成员协作完成，并沉淀进自进化知识底座。
@@ -25,7 +25,7 @@ Team 型（多角色协作团队）
 python3 -m pytest tests/ -q
 
 # 跑 evals benchmark（门禁）
-python3 evals/run_benchmark.py --version "1.7.0"
+python3 evals/run_benchmark.py --version vX.Y.Z
 
 # 重生成 6 个 generated 样本（关键词与门禁同源）
 python3 evals/generate_samples.py
@@ -39,7 +39,7 @@ python3 evals/generate_samples.py
 
 | 范围 | commit | 摘要 |
 |---|---|---|
-| 规范 | `6052a9e` | profession 对齐（agent 名由 `plugin.json` 的 `agentName`/`agents[]` 解析，不依赖 `settings.json`） |
+| 规范 | `6052a9e` | profession 对齐（agent 名由 `.codebuddy-plugin/plugin.json` 的 `agentName`/`agents[]` 解析，不依赖 `settings.json`） |
 | 门禁 | `98887be` / `de246e2` | 退出码反转 + 43 问覆盖 + 加固 |
 | 门禁 | `e00d920` | MUST_ANSWER 限域到 §4.1-§4.6 |
 | 协作 | `79def5c` | 撞限协议下沉四成员 |
@@ -53,7 +53,7 @@ python3 evals/generate_samples.py
 
 ## 团队成员
 
-主理人（team-lead，编排指挥）+ 四名专职成员：研究员（P0 检索整理，只读不写 wiki）、架构师（P1 六层设计）、编码工程师（P2 落地代码）、测试工程师（P3 独立对抗验证）。完整名单与头像见 `plugin.json` 的 `members`。
+主理人（team-lead，编排指挥）+ 四名专职成员：研究员（P0 检索整理，只读不写 wiki）、架构师（P1 六层设计）、编码工程师（P2 落地代码）、测试工程师（P3 独立对抗验证）。完整名单与头像见 `.codebuddy-plugin/plugin.json` 的 `members`。
 
 ## 功能
 

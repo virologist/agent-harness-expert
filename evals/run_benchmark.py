@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -38,13 +39,27 @@ SAMPLES_DIR = ROOT / "samples"
 RESULTS_DIR = ROOT / "results"
 CHECK_DOC = Path(__file__).resolve().parents[1] / "skills/agent-harness-architect/scripts/check_design_doc.py"
 
-# 从 check_design_doc.py 解析 total_questions
+# 静态解析 check_design_doc.py 顶层 QUESTION_KEYWORDS 求问题总数
 def _total_questions() -> int:
-    src = CHECK_DOC.read_text(encoding="utf-8")
-    m = re.search(r"def total_questions\(\).*?return\s+(\d+)", src, re.DOTALL)
-    if not m:
-        return 43
-    return int(m.group(1))
+    """用 ast 定位顶层 QUESTION_KEYWORDS 赋值，对各 list 长度求和。
+
+    不导入/不执行被检查模块；正则会跨函数误命中其它 `return <数字>`，
+    故改用 AST 静态定位。任何解析失败回退 43。
+    """
+    try:
+        tree = ast.parse(CHECK_DOC.read_text(encoding="utf-8"), filename=str(CHECK_DOC))
+        for node in tree.body:
+            target = value = None
+            if isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            if isinstance(target, ast.Name) and target.id == "QUESTION_KEYWORDS":
+                qk = ast.literal_eval(value)
+                return sum(len(v) for v in qk.values())
+    except (OSError, SyntaxError, ValueError, TypeError):
+        pass
+    return 43
 
 
 def _run_check(doc: Path, template: str = "harness") -> dict:
