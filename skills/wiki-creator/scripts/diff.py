@@ -27,10 +27,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _root import detect_wiki_root, normalize_path
+from _root import _resolve_root
 from _common import iter_raw_files, load_json, load_schema, raw_rel, sha256
 
-DEFAULT_ROOT = detect_wiki_root()
+# 缺省根延迟到 parse_args 之后探测（理由同 init_wiki.py，避免 import 时崩溃）
+DEFAULT_ROOT = None
 
 
 def diff(root: Path) -> dict:
@@ -84,9 +85,14 @@ def diff(root: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="raw 文件哈希比对（递归）")
-    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--root", default=None)
     args = parser.parse_args()
-    result = diff(normalize_path(args.root))
+    try:
+        root = _resolve_root(args.root)
+    except RuntimeError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    result = diff(root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

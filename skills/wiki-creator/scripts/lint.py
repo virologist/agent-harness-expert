@@ -35,7 +35,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _root import detect_wiki_root, normalize_path
+from _root import _resolve_root
 from _common import (
     MAX_TOPIC_PAGES,
     SOURCE_ANCHOR_RE,
@@ -45,7 +45,8 @@ from _common import (
     load_schema,
 )
 
-DEFAULT_ROOT = detect_wiki_root()
+# 缺省根延迟到 parse_args 之后探测（理由同 init_wiki.py，避免 import 时崩溃）
+DEFAULT_ROOT = None
 
 KEY_POINTS_HEADING = re.compile(r"^##\s*关键论点\s*$(.*?)(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 SOURCE_SECTION_HEADING = re.compile(r"^##\s*(证据\s*/\s*来源|证据|来源)\s*$", re.MULTILINE)
@@ -80,10 +81,10 @@ def has_source_anchor(body: str) -> bool:
 
 def lint(root: Path) -> dict:
     wiki_dir = root / "wiki"
+    pages, decode_errors = load_pages(wiki_dir)  # wiki_dir 不存在时安全返回 ([], [])
     if not wiki_dir.exists():
-        return {"error": "wiki/ 不存在"}
+        return {"error": "wiki/ 不存在", **({"decode_errors": decode_errors} if decode_errors else {})}
 
-    pages = load_pages(wiki_dir)
     schema = load_schema(wiki_dir)
 
     # 空目录检查（v1.8.1）：wiki/ 存在但没有页面（schema.json 缺失或无 topics/实体），
@@ -93,6 +94,7 @@ def lint(root: Path) -> dict:
         return {
             "error": "wiki/ 为空（没有任何页面）",
             "hint": "知识底座尚未沉淀内容：先把阶段产物经 parse_raw.py 入库（见 SKILL.md §4.2 编译流程），再跑 lint。",
+            **({"decode_errors": decode_errors} if decode_errors else {}),
         }
 
     schema_topics = set(schema["topics"].keys())
@@ -191,11 +193,11 @@ def lint(root: Path) -> dict:
     missing_source_section = sorted(
         p["slug"] for p in pages if not has_source_section(p["body"])
     )
-    unsourced_pages = [
-        {"page": p["slug"], "claim_bullets": count_claim_bullets(p["body"])}
-        for p in pages
-        if count_claim_bullets(p["body"]) > 0 and not has_source_anchor(p["body"])
-    ]
+    unsourced_pages = []
+    for p in pages:
+        cb = count_claim_bullets(p["body"])
+        if cb > 0 and not has_source_anchor(p["body"]):
+            unsourced_pages.append({"page": p["slug"], "claim_bullets": cb})
 
     # 10. 主题过大
     oversized_topics = [
@@ -219,14 +221,20 @@ def lint(root: Path) -> dict:
         "missing_source_section": missing_source_section,
         "unsourced_pages": unsourced_pages,
         "oversized_topics": oversized_topics,
+        **({"decode_errors": decode_errors} if decode_errors else {}),
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="wiki 结构体检")
-    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--root", default=None)
     args = parser.parse_args()
-    result = lint(normalize_path(args.root))
+    try:
+        root = _resolve_root(args.root)
+    except RuntimeError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    result = lint(root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if "error" not in result else 1
 

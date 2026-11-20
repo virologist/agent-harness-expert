@@ -276,7 +276,6 @@ def test_keyword_word_boundary_blocks_english_false_match():
         # → 通过；走词边界匹配时，wal 不在 paywall 中命中 → §4.4 整层被 MIN_SECTION_CHARS 卡住
         # 也不一定。简化：本测试直接断言 S3 在「wal 出现在 paywall 中」时不计覆盖。
         import importlib.util as _ilu
-        from _harness import run as _run
         # 取 design_full 的 §4.4 段并把 'wal' 改写成 paywall / statement
         text = ws.read if False else None
         tpl = _template_body()
@@ -640,3 +639,98 @@ def test_p31_must_answer_missing_layer_section_falls_back_to_full_doc():
                 "有限域段但段内无关键词时，必须记为缺失（不退回全文档）")
     finally:
         ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# A4 严格 fail-closed：未闭合围栏不得让占位符 / §13 / 43 问 / MUST_ANSWER 假绿
+# ---------------------------------------------------------------------------
+
+def test_unclosed_fence_does_not_hide_placeholder():
+    """A4 fail-closed：未闭合 ``` 围栏后的 <PLACEHOLDER> 不能被"正文被剥离"放过。
+
+    修复前：_strip_fenced 手写 toggle，未闭合围栏时 in_fence 恒为 True，
+    围栏后全部正文（占位符 / §13 结论 / 43 问 / MUST_ANSWER）被整段丢弃 → 假绿。
+    修复后：只剥离成对围栏；围栏后正文纳入检查，<PLACEHOLDER> 必须被检出且 exit 1。
+    """
+    ws = Workspace()
+    try:
+        doc_text = (
+            "# 测试文档\n\n"
+            "## 1. 需求规格\n\n"
+            "下面是一段未闭合的围栏：\n\n"
+            "```markdown\n"
+            "围栏正文未闭合，旧实现会连同后面所有正文一起丢掉。\n\n"
+            "## 13. 生产级必答项\n\n"
+            "| # | 必答项 | 结论 |\n"
+            "|---|--------|------|\n"
+            "| 1 | 执行环境 | <PLACEHOLDER> |\n"
+        )
+        doc = ws.write("unclosed_fence.md", doc_text)
+        proc = run(CHECK_DOC, [doc])
+        contains(proc.stdout, "未填占位符 <...>: 有",
+                 "未闭合围栏后的 <PLACEHOLDER> 必须被检出（不得假绿）")
+        contains(proc.stdout, "<PLACEHOLDER>", "具体占位符 <PLACEHOLDER> 应被列出")
+        contains(proc.stdout, "未闭合的 ``` 围栏",
+                 "未闭合围栏应触发一条明确的结构性失败信号")
+        exit_code(proc, 1, "未闭合围栏隐藏占位符的文档必须返回 1（fail-closed）")
+    finally:
+        ws.cleanup()
+
+
+def test_ascii_placeholder_tags_detected_not_whitelisted():
+    """A4 精神收窄白名单：<PLACEHOLDER>/<YOUR-KEY>/<EXAMPLE>/<REPLACE> 等纯 ASCII
+    占位符不得被 _ALLOWED_TAG 当合法标签放行；<T>/<div>/<br>/<my-key> 等合法
+    泛型 / HTML 标签不误伤。
+    """
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location("cdd_ascii", CHECK_DOC)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    placeholders = (
+        "<PLACEHOLDER>", "<YOUR-KEY>", "<YOUR_KEY>", "<TODO>", "<FIXME>",
+        "<XXX>", "<TBD>", "<EXAMPLE>", "<REPLACE>",
+    )
+    for tok in placeholders:
+        is_true(
+            mod._is_placeholder_token(tok, ""),
+            f"ASCII 占位符 {tok} 应被检出（不得被 _ALLOWED_TAG 放行）",
+        )
+    for tok in ("<T>", "<div>", "<br>", "<name>", "<my-key>", "<List>"):
+        is_true(
+            not mod._is_placeholder_token(tok, ""),
+            f"合法标签 / 泛型 {tok} 不应被误伤",
+        )
+    # 直接用 find_placeholders 复核（防止「独立调用仍返回空」的假完成）：
+    # 判据按显式占位符词根，不按「全大写」，故合法泛型 / 比较不受影响。
+    eq(mod.find_placeholders("<PLACEHOLDER>"), ["<PLACEHOLDER>"],
+       "find_placeholders 独立调用必须检出 <PLACEHOLDER>")
+    eq(mod.find_placeholders("<YOUR-KEY>"), ["<YOUR-KEY>"],
+       "find_placeholders 独立调用必须检出 <YOUR-KEY>")
+    eq(mod.find_placeholders("List<String>"), [],
+       "合法泛型 List<String> 不应被误判为占位符")
+    eq(mod.find_placeholders("a < b"), [],
+       "比较运算 a < b 不应被误判为占位符")
+    eq(mod.find_placeholders("<T> <div> <br>"), [],
+       "合法 HTML / 泛型标签 <T>/<div>/<br> 不应被误判为占位符")
+
+
+def test_check_design_doc_has_future_annotations():
+    """F-03：模块级 dict[str, str | None] 注解需 from __future__ import annotations
+    延迟求值，否则 Python 3.9 导入即崩（PEP 604 需 3.10+）。"""
+    source = CHECK_DOC.read_text(encoding="utf-8")
+    is_true("from __future__ import annotations" in source,
+            "check_design_doc.py 必须含 from __future__ import annotations（兼容 3.9）")
+    # 用 ast 确认该 import 出现在所有模块级注解赋值之前
+    import ast
+    tree = ast.parse(source)
+    future_line = None
+    first_annot_line = None
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+            if any(a.name == "annotations" for a in node.names):
+                future_line = node.lineno
+        if isinstance(node, ast.AnnAssign) and first_annot_line is None:
+            first_annot_line = node.lineno
+    is_true(future_line is not None, "AST 中应找到 future annotations import")
+    is_true(first_annot_line is None or future_line < first_annot_line,
+            "future import 必须在首个模块级注解之前（否则注解会在导入时求值而崩溃）")

@@ -75,9 +75,9 @@ def ext_dir() -> Path:
 def cmd_status(_args) -> int:
     ext = ext_dir()
     print(f"包内知识库（只读）: {PKG_KB}")
-    print(f"  存在: {PKG_KB.is_dir()}  条目数: {len(list(PKG_KB.rglob('*.md'))) if PKG_KB.is_dir() else 0}")
+    print(f"  存在: {PKG_KB.is_dir()}  条目数: {sum(1 for _ in PKG_KB.rglob('*.md')) if PKG_KB.is_dir() else 0}")
     print(f"外部进化库（可写）: {ext}")
-    print(f"  存在: {ext.is_dir()}  条目数: {len(list(ext.rglob('*.md'))) if ext.is_dir() else 0}")
+    print(f"  存在: {ext.is_dir()}  条目数: {sum(1 for _ in ext.rglob('*.md')) if ext.is_dir() else 0}")
     idx = ext / "index.md"
     if not idx.is_file():
         print("  状态: 未初始化（运行 init 创建）")
@@ -166,16 +166,18 @@ def cmd_ingest(args) -> int:
         print(f"条目已存在: {dest}")
         print("如需强制覆盖，请追加 --force")
         return 1
+    # 3) 落盘前完成索引行校验：脏 row 时不产生任何部分提交（目标文件不落盘）
+    row_line = args.row.rstrip("\n") if args.row else None
+    if args.row and not _valid_index_row(args.row):
+        raise SystemExit("索引行不合格：须是以 | 开头、含至少 3 列的 markdown 表格行（防脏行污染索引）")
     shutil.copyfile(src, dest)
     print(f"已收录: {dest}")
     if args.row:
-        if not _valid_index_row(args.row):
-            raise SystemExit("索引行不合格：须是以 | 开头、含至少 3 列的 markdown 表格行（防脏行污染索引）")
         idx = ext / "index.md"
         if not idx.is_file():
             cmd_init(args)
         with idx.open("a", encoding="utf-8") as fh:
-            fh.write(args.row.rstrip("\n") + "\n")
+            fh.write(row_line + "\n")
         print(f"已追加索引行: {idx}")
     return 0
 

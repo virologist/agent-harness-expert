@@ -18,14 +18,29 @@ WorkBuddy 沙箱的 sitecustomize 拦截 Path.mkdir，对已存在目录误抛 E
 这里统一把「目标已是目录」视为成功，其余错误原样抛出。
 
 本脚本**不**写仓库任何文件、不发起任何子进程、不引入第三方依赖。
+
+可靠性保证：
+- update_stage 整段读-改-写在项目级文件锁内串行执行；write_state 用唯一 tmp
+  名原子替换，并发多写者不会互抢 tmp 或丢失 completed_stages（P1-2）。
+- update_stage 读取旧 schema 时自动补齐全部必填字段，补不齐抛中文
+  ValueError（列出缺字段/原因），绝不裸 KeyError（P1-1）。
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:  # POSIX 用 fcntl.flock 串行化 update_stage 的读-改-写；Windows 走 msvcrt 降级
+    import fcntl  # type: ignore[import-not-found]
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover - 仅 Windows 触发
+    fcntl = None  # type: ignore[assignment]
+    _HAS_FCNTL = False
 
 # ---------------------------------------------------------------------------
 # 常量与校验
@@ -151,6 +166,95 @@ def _validate_state(state: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 字段补齐与文件锁（P1-1 / P1-2 修复）
+# ---------------------------------------------------------------------------
+
+def _default_state(project_dir: Path) -> dict[str, Any]:
+    """全新项目起点：6 个必填字段齐全，选填字段用合法空值。"""
+    return {
+        "project": project_dir.resolve().name,
+        "current_stage": "P0",
+        "completed_stages": [],
+        "last_run_at": _now_iso(),
+        "per_stage_artifacts": {},
+        "open_items": [],
+    }
+
+
+def _coerce_legacy_state(state: dict[str, Any], project_dir: Path) -> dict[str, Any]:
+    """把读到的 state 补齐为合法 schema（兼容历史缺字段的 state.json）。
+
+    对 6 个必填字段全部 setdefault 合法默认值；补齐后仍不满足 schema 时，
+    抛中文 ValueError 并列出缺失/非法字段，绝不裸 KeyError（P1-1）。
+    与 read_state/write_state 口径一致：返回的是新 dict，不改入参。
+    """
+    if not isinstance(state, dict):
+        raise ValueError(
+            f"{_state_path(project_dir)} 不是合法 state 对象: "
+            f"期望 dict，实际 {type(state).__name__}"
+        )
+    defaults = _default_state(project_dir)
+    merged = dict(state)
+    for key in REQUIRED_KEYS:
+        if key not in merged:
+            merged[key] = defaults[key]
+    # 选填字段也给合法默认值，保证后续 _validate_state 通过
+    merged.setdefault("git_head", "")
+    merged.setdefault("retries", {})
+
+    # 复用 write_state 的同款校验；这里把错误补上文件路径与「字段」语义
+    try:
+        _validate_state(merged)
+    except ValueError as e:
+        raise ValueError(f"{_state_path(project_dir)} 字段补齐后仍非法: {e}") from e
+    return merged
+
+
+class _StateFileLock:
+    """项目级文件锁，串行化 update_stage 的 read-modify-write（P1-2）。
+
+    POSIX 用 fcntl.flock（进程级，跨线程/跨进程互斥）；Windows 回退到
+    msvcrt.locking。锁文件独立存放，仅在 update_stage 期间持有，退出即释放，
+    失败也不留残局（lock 文件可长期存在，但内容为空，不含 state 数据）。
+    """
+
+    def __init__(self, lock_path: Path) -> None:
+        self._lock_path = lock_path
+        self._fh = None
+
+    def __enter__(self) -> _StateFileLock:
+        safe_mkdir(self._lock_path.parent, parents=True)
+        self._fh = self._lock_path.open("a+b")
+        if _HAS_FCNTL:
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
+        else:  # pragma: no cover - 仅 Windows 触发
+            import msvcrt
+            self._fh.seek(0, 2)
+            if self._fh.tell() == 0:
+                self._fh.write(b"\0")  # msvcrt 需锁定至少 1 字节
+            self._fh.flush()
+            self._fh.seek(0)
+            msvcrt.locking(self._fh.fileno(), msvcrt.LK_LOCK, 1)
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        try:
+            if _HAS_FCNTL:
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            else:  # pragma: no cover - 仅 Windows 触发
+                import msvcrt
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            self._fh.close()
+            self._fh = None
+
+
+def _state_lock_path(project_dir: Path) -> Path:
+    return _state_path(project_dir).with_suffix(".lock")
+
+
+# ---------------------------------------------------------------------------
 # 公共 API
 # ---------------------------------------------------------------------------
 
@@ -166,7 +270,7 @@ def read_state(project_dir: str | Path) -> dict | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         raise ValueError(f"{path} 不是合法 JSON: {e}") from e
 
 
@@ -176,16 +280,28 @@ def write_state(project_dir: str | Path, state: dict) -> None:
     流程:
         1. 校验 state 字段（缺必填字段 → ValueError）
         2. safe_mkdir 创建 `.harness-kb/`（沙箱兼容）
-        3. 原子写：先写 `.tmp` 再 rename（保留上次好副本，避免半截 JSON）
+        3. 原子写：唯一 tmp 名（PID+uuid）写盘后 replace，避免并发互抢同一
+           tmp 文件；失败时清理 tmp 不留残局（P1-2）
         4. 不修改传入的 dict（防御性 copy）
     """
     _validate_state(state)
     target = _state_path(Path(project_dir))
     safe_mkdir(target.parent, parents=True)
     payload = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=False)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(target)
+    # 唯一 tmp 名：同一目录下并发写者各有独立 tmp，杜绝互抢/半截 JSON（P1-2）
+    tmp = target.with_suffix(
+        target.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        tmp.replace(target)
+    finally:
+        # 无论成功失败都不留临时残局（replace 成功后 tmp 已不存在）
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def update_stage(
@@ -210,45 +326,42 @@ def update_stage(
         )
 
     project_dir = Path(project_dir)
-    state = read_state(project_dir)  # None → 后续初始化
-    if state is None:
-        # 全新项目：起点统一为 P0；completed 为空，由后续 update_stage 追加
-        state = {
-            "project": project_dir.resolve().name,
-            "current_stage": "P0",
-            "completed_stages": [],
-            "last_run_at": _now_iso(),
-            "per_stage_artifacts": {},
-            "open_items": [],
-        }
+    # 整段 read-modify-write 在文件锁内串行执行，杜绝并发丢失更新（P1-2）。
+    # 锁覆盖「读旧 state → 补字段 → 累积 completed → 写回」全过程。
+    with _StateFileLock(_state_lock_path(project_dir)):
+        state = read_state(project_dir)  # None → 后续初始化
+        if state is None:
+            state = _default_state(project_dir)
+        else:
+            # 6 个必填字段全部补齐；补不齐抛中文 ValueError（P1-1）
+            state = _coerce_legacy_state(state, project_dir)
 
-    # 字段补齐（兼容历史无 git_head / retries 的 state.json）
-    state.setdefault("project", project_dir.resolve().name)
-    state.setdefault("git_head", "")
-    state.setdefault("retries", {})
+        # 选填字段默认值（_coerce_legacy_state 已覆盖旧 state 场景，这里兜底新 state）
+        state.setdefault("git_head", "")
+        state.setdefault("retries", {})
 
-    completed = list(state["completed_stages"])
-    if stage not in completed:
-        completed.append(stage)
-    state["completed_stages"] = completed
+        completed = list(state["completed_stages"])
+        if stage not in completed:
+            completed.append(stage)
+        state["completed_stages"] = completed
 
-    artifacts = dict(state["per_stage_artifacts"])
-    if artifact_path:
-        # 不 resolve：让调用方掌控绝对/相对形态，避免 symlink/不存在的路径被规范化
-        artifacts[stage] = str(artifact_path)
-    state["per_stage_artifacts"] = artifacts
+        artifacts = dict(state["per_stage_artifacts"])
+        if artifact_path:
+            # 不 resolve：让调用方掌控绝对/相对形态，避免 symlink/不存在的路径被规范化
+            artifacts[stage] = str(artifact_path)
+        state["per_stage_artifacts"] = artifacts
 
-    # 推进 current_stage：stage 是 VALID_STAGES 中第 i 个，下一个是 i+1；
-    # 越界（stage=P4）→ complete。aborted 不在此推进，留上层显式调用 write_state 写入。
-    idx = VALID_STAGES.index(stage)
-    if idx + 1 < len(VALID_STAGES):
-        state["current_stage"] = VALID_STAGES[idx + 1]
-    else:
-        state["current_stage"] = "complete"
+        # 推进 current_stage：stage 是 VALID_STAGES 中第 i 个，下一个是 i+1；
+        # 越界（stage=P4）→ complete。aborted 不在此推进，留上层显式调用 write_state 写入。
+        idx = VALID_STAGES.index(stage)
+        if idx + 1 < len(VALID_STAGES):
+            state["current_stage"] = VALID_STAGES[idx + 1]
+        else:
+            state["current_stage"] = "complete"
 
-    state["last_run_at"] = _now_iso()
-    write_state(project_dir, state)
-    return state
+        state["last_run_at"] = _now_iso()
+        write_state(project_dir, state)
+        return state
 
 
 __all__ = [

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 from _root import normalize_path  # re-export 便于统一入口
@@ -30,7 +31,6 @@ CONFORMING_SEG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 # 摘要 / 证据小节
 SUMMARY_RE = re.compile(r"^##\s*摘要\s*$(.*?)(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
-SOURCE_SECTION_RE = re.compile(r"^##\s*(证据\s*/\s*来源|证据|来源)\s*$", re.MULTILINE)
 # 来源锚点：正文中出现的 raw/ 路径或 §章节 标记
 SOURCE_ANCHOR_RE = re.compile(r"raw/\S|§\S")
 
@@ -56,11 +56,20 @@ def sha256(path: Path) -> str:
 
 
 def load_json(path: Path, default):
+    """读 JSON，失败返回 default。
+
+    F-06：严格区分两种「空」——文件不存在（合法首次，静默默认）与
+    文件存在但 JSON 损坏（异常，须向 stderr 打中文告警含路径+原因）。
+    损坏若被静吞，diff 会把全量 raw 误判为 new、build_index 进而覆写原始
+    manifest，造成静默数据丢失。
+    """
     if not path.exists():
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        print(f"WARNING: {path} JSON 损坏，已回退默认值（统计可能失真，"
+              f"请检查该文件是否被误写）: {e}", file=sys.stderr)
         return default
 
 
@@ -205,15 +214,26 @@ def iter_page_files(wiki_dir: Path) -> list[Path]:
     return sorted(pages_dir.rglob("*.md"))
 
 
-def load_pages(wiki_dir: Path) -> list[dict]:
-    """读取 pages/**/*.md，返回富页面字典（含 raw_links）。
+def load_pages(wiki_dir: Path) -> tuple[list[dict], list[dict]]:
+    """读取 pages/**/*.md，返回 (富页面字典列表, 解码失败页列表)。
 
     与旧 build_index 不同：**不静默跳过缺 topic 的页**，而是标记 topic_missing=True，
     由调用方决定如何处理并在报告中可见，保证 build_index 与 lint 计数一致。
+
+    非 UTF-8 / 不可读页被隔离进 decode_errors（含 path 与 error 描述），
+    不让单页坏文件中断整个管线，也不静默丢弃——由调用方决定报告通道。
     """
     pages = []
+    decode_errors = []
     for md in iter_page_files(wiki_dir):
-        text = md.read_text(encoding="utf-8")
+        try:
+            text = md.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError) as e:
+            decode_errors.append({
+                "path": md.relative_to(wiki_dir).as_posix(),
+                "error": f"{type(e).__name__}: {e}",
+            })
+            continue
         fm, body = parse_frontmatter(text)
         slug = md.stem
         topic = fm.get("topic", "") or ""
@@ -234,7 +254,7 @@ def load_pages(wiki_dir: Path) -> list[dict]:
             "raw_links": LINK_RE.findall(body),
             "body": body,
         })
-    return pages
+    return pages, decode_errors
 
 
 def extract_summary(body: str) -> str:

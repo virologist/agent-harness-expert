@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from _harness import Workspace, contains, eq, exit_code, run_python, is_true
+from _harness import Workspace, contains, eq, exit_code, run_python, is_true, not_contains
 
 
 STATE_IO_SCRIPTS = (
@@ -209,5 +209,91 @@ def test_invalid_stage_rejected_and_state_not_corrupted():
            "非法 stage 调用不应改动 current_stage")
         eq(proc_check.stdout.splitlines()[1], "DONE:",
            "非法 stage 调用不应改动 completed_stages")
+    finally:
+        ws.cleanup()
+
+
+def test_update_stage_legacy_schema_missing_fields_ok():
+    """P1-1：旧 schema 缺 completed_stages 等字段应自动补齐，不抛裸 KeyError。"""
+    ws = Workspace()
+    try:
+        proj = ws.path / "legacy"
+        legacy = (
+            '{"project":"x","current_stage":"P0",'
+            '"last_run_at":"2026-01-01T00:00:00Z",'
+            '"per_stage_artifacts":{},"open_items":[]}'
+        )
+        proc = _import(
+            str(ws.path),
+            "import sys, json, pathlib; sys.path.insert(0, %r)\n"
+            "kb = pathlib.Path(%r) / '.harness-kb'\n"
+            "kb.mkdir(parents=True, exist_ok=True)\n"
+            "(kb / '_state.json').write_text(%r, encoding='utf-8')\n"
+            "from state_io import update_stage\n"
+            "out = update_stage(%r, 'P1')\n"
+            "s = json.loads((kb / '_state.json').read_text())\n"
+            "print('DONE:' + ','.join(out['completed_stages']))\n"
+            "print('GITHEAD:' + repr(out['git_head']))\n"
+            "print('RETRIES:' + repr(out['retries']))\n"
+            "print('DISK_DONE:' + ','.join(s['completed_stages']))\n"
+            % (STATE_IO_SCRIPTS, str(proj), legacy, str(proj)),
+        )
+        exit_code(proc, 0, "旧 schema 缺字段应补齐并成功，不抛裸 KeyError")
+        contains(proc.stdout, "DONE:P1", "completed_stages 应补齐为 [] 后追加 P1")
+        contains(proc.stdout, "GITHEAD:''", "git_head 应补默认值空串")
+        contains(proc.stdout, "RETRIES:{}", "retries 应补默认值空字典")
+        contains(proc.stdout, "DISK_DONE:P1", "补齐后应正确写回磁盘")
+
+        # 补不齐（字段存在但非法）→ 中文 ValueError，绝不裸 KeyError
+        proc2 = _import(
+            str(ws.path),
+            "import sys, pathlib; sys.path.insert(0, %r)\n"
+            "kb = pathlib.Path(%r) / '.harness-kb'\n"
+            "(kb / '_state.json').write_text(%r, encoding='utf-8')\n"
+            "from state_io import update_stage\n"
+            "update_stage(%r, 'P1')\n"
+            % (STATE_IO_SCRIPTS, str(proj),
+               '{"project":"x","current_stage":"BAD"}', str(proj)),
+        )
+        exit_code(proc2, 1, "字段非法补不齐应抛 ValueError，退出码 1")
+        contains(proc2.stderr, "字段补齐后仍非法", "错误应说明补齐后仍非法")
+        contains(proc2.stderr, "_state.json", "错误应带 state 路径")
+        not_contains(proc2.stderr, "KeyError: 'completed_stages'",
+                     "绝不能抛裸 KeyError")
+    finally:
+        ws.cleanup()
+
+
+def test_concurrent_update_stage_no_data_loss():
+    """P1-2：30 线程并发 update_stage，completed_stages 应完整保留 5 项无 OSError。"""
+    ws = Workspace()
+    try:
+        proj = ws.path / "conc"
+        body = (
+            "import sys, json, pathlib, threading; sys.path.insert(0, {scripts!r})\n"
+            "from state_io import update_stage\n"
+            "proj = {proj!r}\n"
+            "errors = []\n"
+            "elock = threading.Lock()\n"
+            "def worker(stage):\n"
+            "    try:\n"
+            "        update_stage(proj, stage)\n"
+            "    except Exception as exc:\n"
+            "        with elock:\n"
+            "            errors.append(type(exc).__name__)\n"
+            "threads = [threading.Thread(target=worker, args=('P' + str(i),))\n"
+            "           for i in range(5) for _ in range(6)]\n"
+            "for t in threads: t.start()\n"
+            "for t in threads: t.join()\n"
+            "s = json.loads((pathlib.Path(proj) / '.harness-kb' / '_state.json').read_text())\n"
+            "print('ERRORS:' + str(len(errors)))\n"
+            "print('COUNT:' + str(len(s['completed_stages'])))\n"
+            "print('DONE:' + ','.join(sorted(s['completed_stages'])))\n"
+        ).format(scripts=STATE_IO_SCRIPTS, proj=str(proj))
+        proc = _import(str(ws.path), body)
+        exit_code(proc, 0, "并发调用不应导致进程崩溃/半截 JSON")
+        contains(proc.stdout, "ERRORS:0", "并发 30 线程不应抛任何异常")
+        contains(proc.stdout, "COUNT:5", "completed_stages 应完整保留 5 项")
+        contains(proc.stdout, "DONE:P0,P1,P2,P3,P4", "5 个阶段全部记录无丢失")
     finally:
         ws.cleanup()

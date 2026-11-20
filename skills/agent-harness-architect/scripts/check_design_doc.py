@@ -44,6 +44,8 @@ WHY v1.7.2：
     100% 不匹配 H 框架 15 标题 + §4.x 限域。本补丁加 problem-solution 模板承认这一类
     真实设计的存在合理性。
 """
+from __future__ import annotations  # F-03：模块级 dict[str, str | None] 注解需延迟求值，兼容 Python 3.9
+
 import argparse
 import re
 from pathlib import Path
@@ -419,6 +421,13 @@ _TOLDF_SLOT = re.compile(r"^<[^<>\n]+>$")
 _IDENT_CHAR_BEFORE = re.compile(r"[A-Za-z0-9_)\]]$")
 # 形似标签但实为占位符的常见缩写（TBD / TODO / FIXME / XXX）
 _TODO_LIKE = re.compile(r"^<(?:TBD|TODO|FIXME|XXX|N/A|N/T)>$", re.IGNORECASE)
+# A4 严格 fail-closed 收窄白名单：这些纯 ASCII 占位符形态虽匹配 _ALLOWED_TAG
+# （合法标签形态），但语义上是"待填"，必须被检出，不能被当合法标签放行。
+# 仅命中明确的占位符词根，不误伤 <T>/<div>/<br>/<name>/<my-key> 等合法泛型/HTML 标签。
+_PLACEHOLDER_TAG = re.compile(
+    r"^<(?:PLACEHOLDER|YOUR[-_][A-Za-z0-9_-]*|TODO|FIXME|XXX|TBD|EXAMPLE|REPLACE)>$",
+    re.IGNORECASE,
+)
 
 # 「短尖括号」的长度上限。短的一律算未填占位符（模板提示词就是这个量级）。
 # 超过上限的**不再无条件放行**——见 _is_placeholder_token 的双条件判定。
@@ -454,6 +463,10 @@ def _is_placeholder_token(tok: str, line_prefix: str) -> bool:
     """
     if not _TOLDF_SLOT.match(tok):
         return False
+    # 纯 ASCII 占位符（<PLACEHOLDER>/<YOUR-KEY>/<EXAMPLE> 等）先于合法标签判定，
+    # 否则会被 _ALLOWED_TAG 当作 <my-key> 一类合法标签放行（A4 fail-closed 收窄）。
+    if _PLACEHOLDER_TAG.match(tok):
+        return True
     if _ALLOWED_TAG.match(tok):
         return False
     # 比较运算或泛型：a < b、x <= 1、List<String>
@@ -483,15 +496,36 @@ def find_placeholders(body: str) -> list:
     return found
 
 
+def _has_unclosed_fence(text: str) -> bool:
+    """是否存在未闭合的 ``` 围栏（围栏标记行数为奇数）。
+
+    A4 fail-closed 的结构性信号源：未闭合围栏会让正文被整段剥离而假绿，
+    因此除在 _strip_fenced 里保留围栏后正文外，check() 还要显式报一条结构失败。
+    """
+    return sum(1 for ln in text.splitlines() if ln.lstrip().startswith("```")) % 2 == 1
+
+
 def _strip_fenced(text: str) -> str:
-    """去掉 ``` 围栏代码块内容（占位符检测不看代码块内合法尖括号）。"""
-    out, in_fence = [], False
+    """只剥离**成对** ``` 围栏内的内容；未闭合围栏后的正文保留纳入检查。
+
+    A4 fail-closed：旧实现手写 toggle，未闭合围栏时 in_fence 恒为 True，
+    围栏后所有正文（<PLACEHOLDER> 占位符 / §13 结论 / 43 问 / MUST_ANSWER）
+    被整段丢弃 → 四类检查集体假绿。改为按"成对围栏"剥离：维护一个 pending
+    缓冲，只有遇到闭合围栏才丢弃缓冲内容；到文末仍在围栏内（未闭合）时把
+    缓冲里的正文行补回输出，确保占位符等指标在围栏后也能被检出。
+    """
+    out, in_fence, pending = [], False, []
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
             in_fence = not in_fence
+            pending = []          # 闭合：丢弃成对围栏内容；新开：清空缓冲重新累积
             continue
-        if not in_fence:
+        if in_fence:
+            pending.append(line)
+        else:
             out.append(line)
+    if in_fence:                  # 未闭合：围栏后的正文不丢弃，补回纳入检查
+        out.extend(pending)
     return "\n".join(out)
 
 
@@ -539,7 +573,10 @@ def check(path: Path, template: str = "harness") -> tuple:
         )
     if not path.is_file():
         raise SystemExit(f"文件不存在: {path}")
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        raise SystemExit(f"无法读取文件 {path}: {e}")
     cfg = TEMPLATES[template]
 
     headings = cfg["headings"]
@@ -557,6 +594,10 @@ def check(path: Path, template: str = "harness") -> tuple:
     missing_section_kws = find_missing_required_section_keywords(text, cfg)
     # 合并两路结构性提示：43 问分层结构问题 + MUST_ANSWER 限域段缺失告警
     structural = fc_structural + ma_structural
+    # A4 fail-closed：未闭合围栏单独报一条结构失败，参与 harness 模板门禁，
+    # 杜绝「正文被剥离 → 占位符 / §13 / 43 问 / MUST_ANSWER 集体假绿」。
+    if _has_unclosed_fence(text):
+        structural = structural + ["未闭合的 ``` 围栏（fail-closed：围栏后正文已纳入检查）"]
     return (
         missing_h, missing_m, has_ledger, unanswered,
         placeholders, uncovered, structural, missing_section_kws,

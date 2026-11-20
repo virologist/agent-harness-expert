@@ -43,6 +43,8 @@ description_en: "Builds and maintains a global, project-independent knowledge wi
 >
 > 全局根 `~/.wiki-creator/` 是**所有办公智能体、所有独立任务共用**的目录。当你独立触发 wiki-creator（不经过 agent-harness-expert 团队）且未传 `--root` 时，脚本会自动探测 cwd —— 若不在项目内，会**直接落全局根**，与其他人/其他任务共享同一份 wiki，产生跨任务污染。
 >
+> **F-02 代码级告警**：`detect_wiki_root()` 在 standalone/未设上下文回落全局根时，会向 **stderr 打印中文告警**（含全局根路径与跨任务污染提示），不再静默。团队语境的调用模板已统一加 `WORKBUDDY_CONTEXT=team` 前缀，使护栏在项目标记缺失时直接抛错拒绝回落（默认拒绝语义保留，不放宽）。
+>
 > **强烈建议**：独立使用时，**显式传 `--root <项目>/.wiki-creator/`**（或任何你想独占的目录），不要依赖自动探测回落全局根。仅当你确认本任务就是「跨项目通用知识库」且不需要与其他任务隔离时，才用默认全局根。
 >
 > 团队语境（`agent-harness-expert` 主理人/成员调度）下，`detect_wiki_root()` 已在 `WORKBUDDY_CONTEXT=team` + 无项目标记时**拒绝回落全局根**（抛 `RuntimeError`），强制要求 `--root` 或在项目内执行——这是团队流的硬约束，独立用户不受此保护，故更需主动传 `--root`。

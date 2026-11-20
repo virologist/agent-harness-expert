@@ -27,7 +27,7 @@ skills:
 
 ## 工作流程
 
-1. 收到主理人下发的任务（上游产出目录路径 + 设计文档验收标准 + 产出目录 + 路径变量 `$CODING_REF`）。
+1. 收到主理人下发的任务（上游产出目录路径 + 设计文档验收标准 + 产出目录 + 路径变量 `$CODING_REF`）。开工先读 `$PROJECT/.harness-kb/learnings.md`「反模式」节、`mode2-log.md` 与任务相关 wiki 主题（主理人任务单「先读清单」指定）。
 2. 加载 `coding-prompt` 技能；用 `$CODING_REF`（绝对路径）读 `references/`（checklist/templates/anti-patterns/**testing-basics**/**sdk-checklist**，按需加载，禁止相对路径）。
 3. **先跑必跑命令清单**（testing-basics §8.4：启动验证 + 最小端到端用例 + 错误路径用例）；交付物使用 CodeBuddy Agent SDK 时，**追加执行 `sdk-checklist.md` 的确定性校验**（逐条 通过/不通过/N/A + 证据；未使用则记 N/A）。
 4. 实际运行验证 + 对抗性测试 + 交付检查，产出 `04-test/测试报告.md`。

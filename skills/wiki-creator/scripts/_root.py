@@ -94,4 +94,24 @@ def detect_wiki_root() -> Path:
             "WORKBUDDY_CONTEXT=team 模式下未探测到项目标记，禁止回落全局根 ~/.wiki-creator/ "
             "（防跨专家污染）。请在项目根目录内执行，或显式传 --root <project>/.wiki-creator。"
         )
-    return Path.home() / ".wiki-creator"
+    # F-02：standalone/未设上下文时保留官方回落行为（不改默认拒绝），但回落全局根
+    # 是跨专家/跨任务污染源——必须显式 stderr 告警，不再静默。
+    global_root = Path.home() / ".wiki-creator"
+    print(
+        f"WARNING: 未探测到项目标记且未设 WORKBUDDY_CONTEXT=team，正在回落全局根 "
+        f"{global_root}——该目录被所有独立任务共用，可能跨任务污染；"
+        f"如非跨项目通用知识库，请显式传 --root <项目>/.wiki-creator。",
+        file=sys.stderr,
+    )
+    return global_root
+
+
+def _resolve_root(explicit):
+    """显式 --root 优先（走 normalize_path）；缺省才触发探测。
+
+    四个 CLI 脚本（build_index / diff / init_wiki / lint）共用同一实现，
+    放在本模块作为唯一真源，避免多份拷贝未来漂移。
+    """
+    if explicit is not None:
+        return normalize_path(explicit)
+    return detect_wiki_root()

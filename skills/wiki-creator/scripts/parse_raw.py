@@ -22,16 +22,35 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 # Windows 默认 stdout 可能是 GBK，强制 utf-8，避免 UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """F-09：唯一 tmp 名 + replace 原子写，避免中断留半截文件。
+
+    与 init_wiki.py / build_index.py 同款实现（文件内自包含，不跨目录依赖）。
+    """
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def _try_import(name: str):
@@ -263,7 +282,11 @@ def _libreoffice_to_text(path: Path) -> "str | None":
                 txt = produced.read_text(encoding="utf-8", errors="ignore").strip()
                 if txt:
                     return txt
-    except Exception:
+    except Exception as e:
+        # F-10：不静默吞异常——与相邻分支（parse_docx/parse_pptx 的
+        # except → _office_fallback 带原因标记）风格一致，补中文原因到 stderr。
+        print(f"WARNING: LibreOffice 转换失败（{path}）: {e}；将退回文本抢救降级通道",
+              file=sys.stderr)
         return None
     return None
 
@@ -343,14 +366,18 @@ def main() -> int:
     args = parser.parse_args()
 
     path = Path(args.file).expanduser().resolve()
-    if not path.exists():
-        print(f"错误：文件不存在 {path}", file=sys.stderr)
+    if not path.is_file():
+        print(f"错误：文件不存在或不是普通文件 {path}", file=sys.stderr)
         return 1
 
     content = parse(path)
     if args.output:
-        Path(args.output).write_text(content, encoding="utf-8")
-        print(f"已写入 {args.output}（{len(content)} 字符）", file=sys.stderr)
+        try:
+            atomic_write_text(Path(args.output), content)
+        except OSError as e:
+            print(f"错误：无法写出 {args.output}（{e}）", file=sys.stderr)
+            return 1
+        print(f"已写入 {args.output}（{len(content)} 字符）")
     else:
         print(content)
     return 0

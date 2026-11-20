@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import uuid
 from collections import defaultdict
 from pathlib import Path
 
@@ -22,20 +24,34 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _root import detect_wiki_root, normalize_path, safe_mkdir
+from _root import safe_mkdir, _resolve_root
 from _common import (
     ENTITY_ORDER,
     analyze_page_links,
     build_alias_index,
     iter_raw_files,
-    load_json,
     load_pages,
     load_schema,
     raw_rel,
     sha256,
 )
 
-DEFAULT_ROOT = detect_wiki_root()
+# 缺省根延迟到 parse_args 之后探测（理由同 init_wiki.py，避免 import 时崩溃）
+DEFAULT_ROOT = None
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """F-09：唯一 tmp 名 + replace 原子写，避免中断留半截文件。"""
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def write_index(wiki_dir: Path, pages: list[dict], topics: dict[str, dict]) -> None:
@@ -65,7 +81,18 @@ def write_index(wiki_dir: Path, pages: list[dict], topics: dict[str, dict]) -> N
             lines.append(f"{desc_str}共 {count} 页。")
             lines.append(f"→ 详见 topics/{slug}.md")
             lines.append("")
-    (wiki_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(wiki_dir / "index.md", "\n".join(lines))
+
+
+def _unsafe_topic_slug(slug: str) -> bool:
+    """topic slug 安全闸门：拒绝路径穿越与绝对路径分隔符，防止索引写出 wiki 目录外。"""
+    return (
+        not slug
+        or ".." in slug
+        or "/" in slug
+        or "\\" in slug
+        or Path(slug).is_absolute()
+    )
 
 
 def write_topic_indexes(wiki_dir: Path, pages: list[dict], topics: dict[str, dict]) -> None:
@@ -83,6 +110,12 @@ def write_topic_indexes(wiki_dir: Path, pages: list[dict], topics: dict[str, dic
         old.unlink()
 
     for slug, group in by_topic.items():
+        if _unsafe_topic_slug(slug):
+            print(
+                f"WARNING: 非法 topic slug（{slug!r}），跳过 topics/<slug>.md 写入（防路径穿越）",
+                file=sys.stderr,
+            )
+            continue
         t = topics.get(slug, {})
         name = t.get("name", slug)
         group.sort(key=lambda p: (ENTITY_ORDER.get(p["entity_type"], 99), p["title"]))
@@ -105,7 +138,7 @@ def write_topic_indexes(wiki_dir: Path, pages: list[dict], topics: dict[str, dic
                 summary_str = f" — {summary}" if summary else ""
                 lines.append(f"- [[{p['slug']}]] {p['title']}{summary_str}")
             lines.append("")
-        (topics_dir / f"{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+        atomic_write_text(topics_dir / f"{slug}.md", "\n".join(lines))
 
 
 def duplicate_slugs(pages: list[dict]) -> dict[str, list[str]]:
@@ -116,14 +149,18 @@ def duplicate_slugs(pages: list[dict]) -> dict[str, list[str]]:
     return {s: sorted(ps) for s, ps in by_slug.items() if len(ps) > 1}
 
 
-def build_backlinks(pages: list[dict], alias_index: dict[str, str], page_slugs: set[str]) -> dict:
+def build_backlinks(
+    pages: list[dict], alias_index: dict[str, str], page_slugs: set[str],
+    analyzed_by_path: dict[str, dict],
+) -> dict:
     """计算反链（**别名归一后**）：target_key -> [source_slug, ...]，自动排除自链接。
 
     alias/大写等非规范写法会先解析到规范 slug 再入表，避免 'attn' 与 'attention' 碎片化。
+    analyzed_by_path 由 build_index 统一预计算后传入，避免每页链接被重复解析。
     """
     backlinks = defaultdict(list)
     for p in pages:
-        a = analyze_page_links(p, alias_index, page_slugs)
+        a = analyzed_by_path[p["path"]]
         for key in a["forward"]:
             if key == p["slug"]:
                 continue
@@ -197,38 +234,37 @@ def update_manifest(root: Path, wiki_dir: Path, pages: list[dict]) -> dict:
 
 def build_index(root: Path) -> dict:
     wiki_dir = root / "wiki"
-    if not wiki_dir.exists():
-        return {"error": "wiki/ 不存在，请先运行 init_wiki.py"}
+    if not wiki_dir.is_dir():
+        return {"error": "wiki/ 不存在或不是目录，请先运行 init_wiki.py"}
 
-    pages = load_pages(wiki_dir)
+    pages, decode_errors = load_pages(wiki_dir)
     schema = load_schema(wiki_dir)
     topics = schema["topics"]
 
     page_slugs = {p["slug"] for p in pages}
     alias_index = build_alias_index(pages)
+    # 每页链接只解析一次（lint.py 同范式），供反链与非法风格统计共用
+    analyzed_by_path = {p["path"]: analyze_page_links(p, alias_index, page_slugs) for p in pages}
 
     write_index(wiki_dir, pages, topics)
     write_topic_indexes(wiki_dir, pages, topics)
 
-    backlinks = build_backlinks(pages, alias_index, page_slugs)
-    (wiki_dir / ".backlinks.json").write_text(
-        json.dumps(backlinks, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    backlinks = build_backlinks(pages, alias_index, page_slugs, analyzed_by_path)
+    atomic_write_text(wiki_dir / ".backlinks.json",
+                      json.dumps(backlinks, ensure_ascii=False, indent=2))
 
     graph = build_graph(pages, alias_index)
-    (wiki_dir / ".graph.json").write_text(
-        json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(wiki_dir / ".graph.json",
+                      json.dumps(graph, ensure_ascii=False, indent=2))
 
     manifest = update_manifest(root, wiki_dir, pages)
-    (wiki_dir / ".manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(wiki_dir / ".manifest.json",
+                      json.dumps(manifest, ensure_ascii=False, indent=2))
 
     # 非法风格链接统计（供报告，不阻断编译）
     nonconforming = 0
     for p in pages:
-        a = analyze_page_links(p, alias_index, page_slugs)
+        a = analyzed_by_path[p["path"]]
         nonconforming += sum(1 for l in a["links"] if not l["conforming"])
 
     indexed = [p for p in pages if not p["topic_missing"]]
@@ -244,15 +280,27 @@ def build_index(root: Path) -> dict:
         "duplicate_slugs": graph["duplicate_slugs"],
         "nonconforming_links": nonconforming,
         "raw_files": len(manifest["files"]),
+        **({"decode_errors": decode_errors} if decode_errors else {}),
     }
+
+    # 坏页 → 报告不完整，状态降级为 completed_with_errors（rc 由 main 按 status 判定）
+    if decode_errors:
+        for de in decode_errors:
+            print(f"WARNING: 页面读取失败（{de['path']}）：{de['error']}", file=sys.stderr)
+        result["status"] = "completed_with_errors"
     return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="构建 wiki 两级索引 + 元数据")
-    parser.add_argument("--root", default=str(DEFAULT_ROOT))
+    parser.add_argument("--root", default=None)
     args = parser.parse_args()
-    result = build_index(normalize_path(args.root))
+    try:
+        root = _resolve_root(args.root)
+    except RuntimeError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    result = build_index(root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "ok" else 1
 

@@ -4,7 +4,7 @@
 WHY: 团队语境下多个产物路径都假设 `<项目>/.harness-kb/` 已存在——
   - learnings.md（P1-4 闭环，编码/测试工程师写入）
   - mode2-log.md（P3-4 协议，Mode 2 告警落盘）
-  - _state.json（P3-5 占位，断点状态机）
+  - _state.json（符合 references/_state_schema.md v1 的完整初始 state，供 P3-5 状态机消费）
   - inbox/（待处理 raw 资料）
 首次跑流程时主理人需手工建 `.harness-kb/`，是已知失败源之一
 （v1.2 报告 N2 亲验）。本脚本统一初始化骨架，幂等可重跑。
@@ -13,26 +13,43 @@ WHAT: 在项目根执行时自动创建：
   .harness-kb/
   ├── learnings.md        # 编码经验层（P1-4 闭环）
   ├── mode2-log.md        # Mode 2 告警落盘（P3-4 协议）
-  ├── _state.json         # 断点状态机占位（P3-5 接管）
+  ├── _state.json         # 初始 state（_state_schema.md v1 全量必填字段）
   └── inbox/              # 收件箱（待处理 raw 资料）
 
 与 wiki-creator 的 `scripts/init_wiki.py` 对齐：
   - safe_mkdir 兼容 WorkBuddy 沙箱 EEXIST 误报（标准库 mkdir(exist_ok=True)
     被 sitecustomize 拦截为 PermissionError 的场景）
-  - 默认幂等：目录已存在时不覆盖任何文件；--force 重建 4 个产物（inbox/ 不清空）
+  - 默认幂等：目录已存在时不覆盖任何文件；--force 重建模板文件（learnings/
+    mode2-log），但绝不覆盖 _state.json（撞限续跑核心）；inbox/ 不清空
+  - 仅显式 --reset-state 才重置 _state.json 到 P0，且覆盖前备份为 .bak
 
 用法:
-    python3 agents/_harness_kb_init.py <project_root> [--force]
+    python3 agents/_harness_kb_init.py <project_root> [--force] [--reset-state]
 
-退出码: 0 成功；1 参数错误。
+退出码: 0 成功；1 参数错误或目标不可写。
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+# F-09：结构化文件统一原子写（唯一 tmp 名 + replace），避免中断留半截文件
+def atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def safe_mkdir(path: Path, parents: bool = False) -> None:
@@ -99,24 +116,49 @@ MODE2_LOG_TEMPLATE = """# Mode 2 告警日志（P3-4 跨 P 状态承继）
 | _（待首批告警）_ | | |
 """
 
-# _state.json 最小占位 — schema 由 P3-5 协议（references/_state_schema.md）接管升级
-# 字段含义：
-#   stage: 当前阶段（None 表示未启动；P3-5 接管后填 P0/P1/P2/P3/P4 等）
-#   last_updated: 最近一次状态写入时间（UTC ISO 8601）；首次 init 填初始化时间
-STATE_PLACEHOLDER = {"stage": None, "last_updated": None}
+# _state.json 初始 state — 严格对齐 references/_state_schema.md v1 与
+# skills/coding-prompt/scripts/state_io.py（REQUIRED_KEYS / _now_iso 口径）。
+# 历史坑：旧版写 {"stage": None, "last_updated": ...}，state_io.read_state 读到后
+# update_stage 直接 KeyError 'completed_stages'，SOP 首动作「按 current_stage 续跑」全失效。
+# 必填字段：project / current_stage / completed_stages / last_run_at
+#           / per_stage_artifacts / open_items（可选 git_head/retries 不写，保持最小）。
+def _now_iso() -> str:
+    """UTC ISO 8601 时间戳（秒精度、Z 后缀）— 与 state_io._now_iso 逐字一致。"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def init(project_root: Path, force: bool = False) -> dict:
+def build_initial_state(project_root: Path) -> dict:
+    """产出符合 _state_schema.md v1 的完整初始 state（全部必填字段）。
+
+    起点固定 P0、completed_stages 为空；后续阶段推进交给 state_io.update_stage。
+    project 取项目根 basename（与 state_io.update_stage 的回填口径一致）。
+    """
+    return {
+        "project": project_root.resolve().name,
+        "current_stage": "P0",
+        "completed_stages": [],
+        "last_run_at": _now_iso(),
+        "per_stage_artifacts": {},
+        "open_items": [],
+    }
+
+
+def init(project_root: Path, force: bool = False, reset_state: bool = False) -> dict:
     """初始化 `<project_root>/.harness-kb/` 骨架。
 
-    创建 4 个产物（默认幂等；--force 重建 3 个文件，inbox/ 不清空）：
+    创建 4 个产物（默认幂等；--force 重建 2 个模板文件，inbox/ 不清空）：
       - learnings.md
       - mode2-log.md
-      - _state.json
+      - _state.json   ← F-07：--force 绝不覆盖；仅 --reset-state 才重置（先备份 .bak）
       - inbox/  （空目录）
 
+    F-07：撞限续跑依赖 _state.json 的进度；--force 曾无条件把它重置到 P0
+    清空 completed，破坏 SOP。现改为 --force 不动 _state.json，显式
+    --reset-state 才覆盖且覆盖前备份为 _state.json.bak。
+
     Returns:
-        dict with keys: status, kb_dir, created, preserved, force, message
+        dict with keys: status, kb_dir, created, preserved, force, reset_state,
+                        state_backup, message
     """
     if not project_root.exists() or not project_root.is_dir():
         raise FileNotFoundError(f"项目根不存在或不是目录: {project_root}")
@@ -126,11 +168,9 @@ def init(project_root: Path, force: bool = False) -> dict:
     safe_mkdir(kb, parents=True)
     safe_mkdir(kb / "inbox")
 
-    # _state.json 初始化时写入当前 ISO 时间戳，便于「至少被 touched 过」自检
-    state_payload = {
-        "stage": None,
-        "last_updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
+    # 写入符合 _state_schema.md v1 的完整初始 state，
+    # 保证 read_state → update_stage → write_state 闭环可直接消费。
+    state_payload = build_initial_state(project_root)
 
     artifacts: dict[str, str] = {
         "learnings.md": LEARNINGS_TEMPLATE,
@@ -140,12 +180,24 @@ def init(project_root: Path, force: bool = False) -> dict:
 
     created: list[str] = []
     preserved: list[str] = []
+    state_backup: str | None = None
     for name, content in artifacts.items():
         p = kb / name
+        if name == "_state.json" and p.exists():
+            # F-07：撞限续跑核心，--force 绝不覆盖；仅 --reset-state 才重置，且先备份
+            if reset_state:
+                backup = kb / "_state.json.bak"
+                atomic_write_text(backup, p.read_text(encoding="utf-8"))
+                state_backup = str(backup)
+                atomic_write_text(p, content)
+                created.append(name)
+            else:
+                preserved.append(name)
+            continue
         if p.exists() and not force:
             preserved.append(name)
             continue
-        p.write_text(content, encoding="utf-8")
+        atomic_write_text(p, content)  # F-09：原子写
         created.append(name)
 
     return {
@@ -155,10 +207,13 @@ def init(project_root: Path, force: bool = False) -> dict:
         "created": created,
         "preserved": preserved,
         "force": force,
+        "reset_state": reset_state,
+        "state_backup": state_backup,
         "message": (
             "首次跑流程前由主理人执行一次即可；后续 P1-4/P3-4 由对应成员写入对应文件。"
             if kb_was_new
-            else ".harness-kb/ 已存在；默认幂等（未覆盖已有文件）。--force 重建 3 个文件骨架。"
+            else ".harness-kb/ 已存在；默认幂等。--force 重建模板文件但不碰 _state.json；"
+                 "仅 --reset-state 才重置 _state.json（先备份 .bak）。"
         ),
     }
 
@@ -174,14 +229,20 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="重建 3 个文件骨架（learnings/mode2-log/_state），inbox/ 不清空",
+        help="重建 learnings/mode2-log 模板文件；不碰 _state.json（撞限续跑核心），inbox/ 不清空",
+    )
+    parser.add_argument(
+        "--reset-state",
+        action="store_true",
+        help="显式重置 _state.json 到 P0（覆盖前备份为 _state.json.bak）；用于确需放弃断点时",
     )
     args = parser.parse_args()
 
     try:
-        result = init(Path(args.project_root).resolve(), force=args.force)
-    except FileNotFoundError as e:
-        print(json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False), file=sys.stderr)
+        result = init(Path(args.project_root).resolve(), force=args.force,
+                      reset_state=args.reset_state)
+    except (FileNotFoundError, OSError) as e:
+        print(json.dumps({"status": "error", "error": f"初始化失败: {e}"}, ensure_ascii=False), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

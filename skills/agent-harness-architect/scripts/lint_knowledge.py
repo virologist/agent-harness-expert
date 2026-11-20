@@ -83,7 +83,10 @@ def classify_entry(path: Path, root: Path | None) -> str:
 
 def lint_file(path: Path, root: Path | None = None) -> list:
     problems = []
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        return [f"无法读取文件: {e}"]
     keys = parse_frontmatter(text) or []
     kind = classify_entry(path, root)
     is_pattern = kind == "pattern"

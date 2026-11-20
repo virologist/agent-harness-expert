@@ -5,7 +5,6 @@ resolve_paths.py / knowledge_lib.py / render_questionnaire.py
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from _harness import (
     ARCH_SCRIPTS,

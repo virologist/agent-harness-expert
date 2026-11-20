@@ -24,6 +24,7 @@ from _harness import (
     exit_code,
     is_true,
     json_out,
+    not_contains,
     run,
     run_python,
 )
@@ -69,6 +70,36 @@ def test_root_detect_global_fallback():
         )
         exit_code(proc, 0, "无项目标记时不应抛异常")
         eq(proc.stdout.strip(), str(Path.home() / ".wiki-creator"), "无标记应回落全局目录")
+    finally:
+        ws.cleanup()
+
+
+def test_root_global_fallback_warns_cross_task_pollution():
+    """F-02：回落全局根时 stderr 须有中文告警（含路径+跨任务污染提示）；不改默认拒绝。"""
+    ws = Workspace()
+    try:
+        # standalone 回落：行为不变（仍返回全局根），但必须告警
+        proc = run_python(
+            "from pathlib import Path\nfrom _root import detect_wiki_root\n"
+            "print('ROOT:' + str(detect_wiki_root()))\n",
+            cwd=ws.path, syspath=[WIKI_SCRIPTS],
+            env={"WORKBUDDY_CONTEXT": "standalone"},
+        )
+        exit_code(proc, 0, "standalone 回落不应抛异常")
+        contains(proc.stdout, "ROOT:", "应返回全局根路径")
+        contains(proc.stderr, "回落全局根", "F-02：stderr 须提示回落全局根")
+        contains(proc.stderr, "跨任务污染", "F-02：stderr 须提示跨任务污染风险")
+
+        # team 模式仍拒绝回落（默认拒绝语义保留，不放宽）
+        proc2 = run_python(
+            "from _root import detect_wiki_root\n"
+            "try:\n    detect_wiki_root()\n    print('NO_RAISE')\n"
+            "except RuntimeError:\n    print('RAISED')\n",
+            cwd=ws.path, syspath=[WIKI_SCRIPTS],
+            env={"WORKBUDDY_CONTEXT": "team"},
+        )
+        exit_code(proc2, 0, "子进程应正常退出")
+        eq(proc2.stdout.strip(), "RAISED", "F-02：team 模式必须保留拒绝回落语义")
     finally:
         ws.cleanup()
 
@@ -156,6 +187,37 @@ def test_common_load_schema_topics():
         contains(proc.stdout, "['llm-basics']", "主题清单应被解析")
         contains(proc.stdout, "'概念'", "实体类型清单应被解析")
         contains(proc.stdout, "v1", "schema_version 应被解析")
+    finally:
+        ws.cleanup()
+
+
+def test_common_load_json_missing_is_silent_corrupt_warns():
+    """F-06：文件不存在静默返回默认；文件存在但 JSON 损坏须 stderr 中文告警含路径。"""
+    ws = Workspace()
+    try:
+        missing = ws.path / "nope.json"
+        proc = run_python(
+            "from pathlib import Path\nfrom _common import load_json\n"
+            f"r = load_json(Path({str(missing)!r}), {{'k': 'default'}})\n"
+            "print('GOT:' + repr(r))\n",
+            syspath=[WIKI_SCRIPTS],
+        )
+        exit_code(proc, 0, "文件不存在不应抛异常")
+        contains(proc.stdout, "GOT:{'k': 'default'}", "文件不存在应静默返回默认值")
+        eq(proc.stderr, "", "文件不存在（合法首次）不得写 stderr 告警")
+
+        corrupt = ws.path / "bad.json"
+        corrupt.write_text("BROKEN{ 不是JSON", encoding="utf-8")
+        proc2 = run_python(
+            "from pathlib import Path\nfrom _common import load_json\n"
+            f"r = load_json(Path({str(corrupt)!r}), {{'k': 'default'}})\n"
+            "print('GOT:' + repr(r))\n",
+            syspath=[WIKI_SCRIPTS],
+        )
+        exit_code(proc2, 0, "损坏 JSON 不应抛异常（回退默认）")
+        contains(proc2.stdout, "GOT:{'k': 'default'}", "损坏应回退默认值")
+        contains(proc2.stderr, "JSON 损坏", "损坏须有中文告警")
+        contains(proc2.stderr, "bad.json", "告警须含文件路径")
     finally:
         ws.cleanup()
 
@@ -442,5 +504,234 @@ def test_root_team_mode_forbids_global_fallback():
            "team 模式无项目标记时必须抛 RuntimeError，不得回落全局根")
         contains(proc.stdout, "WORKBUDDY_CONTEXT=team",
                  "错误信息应明确提示 team 模式约束，便于排查")
+    finally:
+        ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# P4（N-1 闭合）：load_pages 坏页隔离——lint/build_index 不 traceback、坏页可见
+# ---------------------------------------------------------------------------
+
+def test_load_pages_isolates_undecodable_page():
+    """坏页（非 UTF-8）被隔离进 decode_errors，好页照常解析。"""
+    ws = Workspace()
+    try:
+        ws.write("wiki/pages/bad.md", "skip")
+        # 直接写二进制内容（非 UTF-8）
+        (ws.path / "wiki" / "pages" / "bad.md").write_bytes(b"\x00\xff binary junk")
+        ws.write("wiki/pages/good.md", build_wiki_page("Good"))
+        proc = run_python(
+            "from pathlib import Path\n"
+            "from _common import load_pages\n"
+            "pages, errs = load_pages(Path('wiki'))\n"
+            "print(len(pages), len(errs))\n"
+            "print(pages[0]['slug'])\n"
+            "print(errs[0]['path'])\n",
+            cwd=ws.path, syspath=[WIKI_SCRIPTS],
+        )
+        exit_code(proc, 0, "load_pages 遇坏页不应抛异常")
+        first = proc.stdout.strip().splitlines()
+        eq(first[0], "1 1", "应恰好解析出 1 个好页 + 1 个坏页")
+        eq(first[1], "good", "好页 slug 应为 good")
+        eq(first[2], "pages/bad.md", "坏页 path 应为 wiki 相对 posix 路径")
+    finally:
+        ws.cleanup()
+
+
+def test_lint_reports_decode_errors_no_traceback():
+    """lint 遇坏页：decode_errors 进报告、0 traceback、page_count 只计健康页。"""
+    ws = Workspace()
+    try:
+        _make_wiki(ws, {"good.md": build_wiki_page("Good")})
+        (ws.path / "wiki" / "pages" / "bad.md").write_bytes(b"\x00\xff binary junk")
+        proc = run(WIKI_LINT, ["--root", ws.path])
+        exit_code(proc, 0, "lint 坏页走报告哲学，rc 仍 0")
+        result = json_out(proc, "lint 输出应为 JSON")
+        eq(result["page_count"], 1, "page_count 只计健康页")
+        is_true("decode_errors" in result, "报告应含 decode_errors 键")
+        eq(result["decode_errors"][0]["path"], "pages/bad.md", "坏页路径应入报告")
+        not_contains(proc.stderr, "Traceback", "lint 不应产生 traceback")
+    finally:
+        ws.cleanup()
+
+
+def test_build_index_reports_decode_errors_no_traceback():
+    """build_index 遇坏页：completed_with_errors + rc=1 + stderr WARNING + 0 traceback。"""
+    ws = Workspace()
+    try:
+        _make_wiki(ws, {"good.md": build_wiki_page("Good")})
+        (ws.path / "wiki" / "pages" / "bad.md").write_bytes(b"\x00\xff binary junk")
+        proc = run(WIKI_BUILD, ["--root", ws.path])
+        exit_code(proc, 1, "坏页使索引/manifest 不完整，build 应 rc=1")
+        result = json_out(proc, "build 输出应为 JSON")
+        eq(result["status"], "completed_with_errors", "status 应降级为 completed_with_errors")
+        contains(proc.stderr, "WARNING: 页面读取失败", "stderr 应有 WARNING 行")
+        not_contains(proc.stderr, "Traceback", "build 不应产生 traceback")
+    finally:
+        ws.cleanup()
+
+
+def test_healthy_wiki_has_no_decode_errors_key():
+    """口径 3：健康 wiki 的 lint/build 报告不得出现 decode_errors 键（零新增键）。"""
+    ws = Workspace()
+    try:
+        _make_wiki(ws, {"good.md": build_wiki_page("Good")})
+        lint_proc = run(WIKI_LINT, ["--root", ws.path])
+        lint_result = json_out(lint_proc, "lint 输出应为 JSON")
+        is_true("decode_errors" not in lint_result, "健康路径 lint 报告不得含 decode_errors 键")
+        build_proc = run(WIKI_BUILD, ["--root", ws.path])
+        exit_code(build_proc, 0, "健康 wiki build 应 rc=0")
+        build_result = json_out(build_proc, "build 输出应为 JSON")
+        eq(build_result["status"], "ok", "健康路径 status 应为 ok")
+        is_true("decode_errors" not in build_result, "健康路径 build 报告不得含 decode_errors 键")
+    finally:
+        ws.cleanup()
+
+
+def test_init_wiki_broken_dir_returns_json_error_not_traceback():
+    """P2-1：wiki / raw / --root 为普通文件时，应输出 JSON error + exit 1，无裸 traceback。"""
+    ws = Workspace()
+    try:
+        # 构造 wiki 为普通文件的损坏根
+        (ws.path / "wiki").write_text("I am a file not a dir", encoding="utf-8")
+        proc = run(WIKI_INIT, ["--root", str(ws.path)])
+        exit_code(proc, 1, "损坏目录应 exit 1")
+        not_contains(proc.stderr, "Traceback", "不得有裸 traceback")
+        # stderr 与 stdout 中应有可读 JSON error
+        combined = proc.stdout + proc.stderr
+        is_true('"status": "error"' in combined or '"status":"error"' in combined,
+                f"应输出结构化 JSON error: {combined}")
+        is_true("error" in combined, "JSON 应含 error 字段说明原因")
+
+        # --root 指向普通文件
+        f = ws.path / "afile"
+        f.write_text("x", encoding="utf-8")
+        proc2 = run(WIKI_INIT, ["--root", str(f)])
+        exit_code(proc2, 1, "--root 为普通文件应 exit 1")
+        not_contains(proc2.stderr, "Traceback", "不得有裸 traceback")
+    finally:
+        ws.cleanup()
+
+
+def test_parse_raw_libreoffice_failure_emits_reason():
+    """F-10：LibreOffice 转换异常时不得静默吞——须向 stderr 打中文原因标记。"""
+    proc = run_python(
+        "import sys, subprocess\n"
+        "from pathlib import Path\n"
+        "import parse_raw as M\n"
+        # 让 which 认为 soffice 存在，但 subprocess.run 抛异常触发 except 分支
+        "M.shutil.which = lambda name: ('soffice' if name == 'soffice' else None)\n"
+        "def boom(*a, **kw):\n"
+        "    raise RuntimeError('模拟转换失败')\n"
+        "M.subprocess.run = boom\n"
+        "r = M._libreoffice_to_text(Path('/tmp/sample.docx'))\n"
+        "assert r is None, r\n"
+        "print('DONE')\n",
+        syspath=[WIKI_SCRIPTS],
+    )
+    exit_code(proc, 0, "转换失败应返回 None 不抛异常")
+    contains(proc.stdout, "DONE", "函数应正常返回")
+    contains(proc.stderr, "LibreOffice 转换失败", "F-10：须有中文原因标记")
+    contains(proc.stderr, "sample.docx", "告警应含文件路径")
+
+
+def test_atomic_write_text_leaves_no_tmp_and_overwrites():
+    """F-09：原子写 helper 应覆盖旧内容、无 .tmp 残留、内容完整可解析。"""
+    # 用真实工作区逐一验证两个模块的 helper
+    ws = Workspace()
+    try:
+        for mod_name in ("init_wiki", "build_index"):
+            target = ws.path / f"{mod_name}.json"
+            target.write_text('{"old": true}', encoding="utf-8")
+            proc = run_python(
+                f"from pathlib import Path\n"
+                f"import {mod_name} as M\n"
+                f"p = Path({str(target)!r})\n"
+                f"M.atomic_write_text(p, '{{\"new\": 42}}')\n"
+                "print('OK')\n",
+                syspath=[WIKI_SCRIPTS],
+            )
+            exit_code(proc, 0, f"{mod_name}.atomic_write_text 应成功")
+            contains(proc.stdout, "OK", f"{mod_name} 原子写应执行成功")
+            # 内容已被完整覆盖
+            eq(json.loads(target.read_text(encoding="utf-8")), {"new": 42},
+               f"{mod_name} 原子写应完整覆盖旧内容")
+            # 无 .tmp 残局
+            tmps = list(ws.path.glob(f"{mod_name}.json.*.tmp"))
+            eq(tmps, [], f"{mod_name} 原子写不得留 .tmp 残局")
+    finally:
+        ws.cleanup()
+
+
+def test_parse_raw_atomic_write_survives_replace_failure():
+    """F-09 补齐：parse_raw 的 -o 写出必须是原子写——replace 崩断时
+    目标文件不被破坏（不留半截内容）、且无 .tmp 残局。
+
+    能红能绿：修复前 parse_raw 无 atomic_write_text（非原子 write_text 直写），
+    本用例在 helper 缺失 / replace 崩断两条路径上均失败；修复后全绿。
+    """
+    ws = Workspace()
+    try:
+        # ── 路径 A：崩断模拟——replace 抛错时目标文件保持原样 ──
+        target = ws.path / "out.md"
+        target.write_text("ORIGINAL-CONTENT", encoding="utf-8")
+        proc = run_python(
+            "import pathlib\n"
+            "from pathlib import Path\n"
+            "import parse_raw as M\n"
+            f"target = Path({str(target)!r})\n"
+            # 崩溃模拟：replace 阶段抛错（等价于进程在提交前被杀）
+            "def boom(self, *a, **kw):\n"
+            "    raise OSError('模拟 replace 崩断')\n"
+            "pathlib.Path.replace = boom\n"
+            "try:\n"
+            "    M.atomic_write_text(target, 'NEW-CONTENT')\n"
+            "    print('NO_RAISE')\n"
+            "except OSError as e:\n"
+            "    print('RAISED', str(e))\n",
+            syspath=[WIKI_SCRIPTS],
+        )
+        exit_code(proc, 0, "replace 崩断应被正常抛出（不静默吞错）")
+        contains(proc.stdout, "RAISED", "replace 崩断必须抛异常，不得静默吞")
+        # 目标文件未被破坏：仍是完整旧内容，而不是半截
+        eq(target.read_text(encoding="utf-8"), "ORIGINAL-CONTENT",
+           "replace 崩断时目标文件不得被破坏（不得留半截内容）")
+        # 无 tmp 残局
+        tmps = list(ws.path.glob("out.md.*.tmp"))
+        eq(tmps, [], "replace 崩断后不得留 .tmp 残局")
+
+        # ── 路径 B：CLI 层崩断——main() 的 -o 必须走原子写 ──
+        # （若 CLI 仍用非原子 write_text 直写，目标文件会被写成半截/新内容）
+        src = ws.write("a.md", "# 标题\n\n正文。\n")
+        cli_target = ws.path / "cli.md"
+        cli_target.write_text("CLI-ORIGINAL", encoding="utf-8")
+        proc_cli = run_python(
+            "import pathlib, sys\n"
+            "from pathlib import Path\n"
+            "import parse_raw as M\n"
+            f"src = Path({str(src)!r})\n"
+            f"out = Path({str(cli_target)!r})\n"
+            "def boom(self, *a, **kw):\n"
+            "    raise OSError('模拟 replace 崩断')\n"
+            "pathlib.Path.replace = boom\n"
+            "sys.argv = ['parse_raw.py', str(src), '-o', str(out)]\n"
+            "rc = M.main()\n"
+            "print('RC', rc)\n",
+            syspath=[WIKI_SCRIPTS],
+        )
+        exit_code(proc_cli, 0, "崩断模拟子进程应正常退出（异常被 main 捕获转成 rc=1）")
+        contains(proc_cli.stdout, "RC 1", "CLI 撞上 replace 崩断应返回 1 而非崩溃")
+        eq(cli_target.read_text(encoding="utf-8"), "CLI-ORIGINAL",
+           "CLI replace 崩断时目标文件不得被破坏（不得留半截内容）")
+        cli_tmps = list(ws.path.glob("cli.md.*.tmp"))
+        eq(cli_tmps, [], "CLI replace 崩断后不得留 .tmp 残局")
+
+        # ── 路径 C：CLI 正常路径——-o 写出后无 tmp 残留且内容完整 ──
+        proc2 = run(WIKI_PARSE, [src, "-o", cli_target])
+        exit_code(proc2, 0, "-o 应返回 0")
+        is_true(cli_target.is_file(), "-o 应写出文件")
+        contains(cli_target.read_text(encoding="utf-8"), "源文件：a.md", "写出内容应含源文件头")
+        cli_tmps2 = list(ws.path.glob("cli.md.*.tmp"))
+        eq(cli_tmps2, [], "CLI -o 正常路径也不得留 .tmp 残局")
     finally:
         ws.cleanup()

@@ -102,57 +102,100 @@ def test_serialize_table_round_trip():
     assert r2 == rows
 
 
-def test_promote_end_to_end(tmp_learnings):
-    """完整流程：临时文件 → 跑 promote → 验证变更落盘 + 报告生成。"""
-    from promoted_checker import promote
-    report = promote(tmp_learnings)
-    assert report["status"] == "promoted"
-    assert report["rows_processed"] == 5  # 4 数据行 + 1 空占位
-    assert report["threshold"] == PROMOTE_THRESHOLD
-    assert len(report["changes"]) == 2
-    # 原文件已落盘
-    text = tmp_learnings.read_text(encoding="utf-8")
-    assert "promoted" in text
-    # 报告 JSON 落盘
-    report_path = tmp_learnings.with_suffix(".promote-report.json")
-    assert report_path.is_file()
-    report_data = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report_data["status"] == "promoted"
+def test_promote_end_to_end():
+    """完整流程：临时文件 → 跑 promote → 验证变更落盘 + 报告生成。
 
-
-def test_promote_noop_when_no_changes(tmp_learnings_noop):
-    """无变更时 → status=noop, 不写报告"""
-    from promoted_checker import promote
-    report = promote(tmp_learnings_noop)
-    assert report["status"] == "noop"
-    # 无报告落盘
-    report_path = tmp_learnings_noop.with_suffix(".promote-report.json")
-    assert not report_path.exists()
-
-
-# === fixtures ===
-
-import pytest
-import tempfile
-
-
-@pytest.fixture
-def tmp_learnings():
-    """手写临时文件，避开 pytest tmp_path 在 WorkBuddy 沙箱的 EEXIST bug。"""
+    夹具手工构造（沿原本文件 fixture 的 mkstemp 形态），使 pytest 与
+    tests/run_tests.py 纯 stdlib 入口都能直接运行本用例。
+    """
     import os
     fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-")
     os.close(fd)
     p = Path(path)
     p.write_text(SAMPLE_TABLE, encoding="utf-8")
-    yield p
-    p.unlink(missing_ok=True)
-    report = p.with_suffix(".promote-report.json")
-    report.unlink(missing_ok=True)
+    try:
+        from promoted_checker import promote
+        report = promote(p)
+        assert report["status"] == "promoted"
+        assert report["rows_processed"] == 5  # 4 数据行 + 1 空占位
+        assert report["threshold"] == PROMOTE_THRESHOLD
+        assert len(report["changes"]) == 2
+        # 原文件已落盘
+        text = p.read_text(encoding="utf-8")
+        assert "promoted" in text
+        # 报告 JSON 落盘
+        report_path = p.with_suffix(".promote-report.json")
+        assert report_path.is_file()
+        report_data = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report_data["status"] == "promoted"
+    finally:
+        p.unlink(missing_ok=True)
+        p.with_suffix(".promote-report.json").unlink(missing_ok=True)
 
 
-@pytest.fixture
-def tmp_learnings_noop():
-    """全部已符合现状 → 0 变更。"""
+def test_promote_schema_error_when_header_missing():
+    """F-04：表头被删 = schema_error（非 noop），绝不静默 exit 0。"""
+    fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-nohdr-")
+    import os
+    os.close(fd)
+    p = Path(path)
+    # 表头被删，只剩普通正文（无任何 | Pattern-Key | 行）
+    p.write_text("# 经验沉淀\n\n正文段落，没有表格表头。\n", encoding="utf-8")
+    try:
+        from promoted_checker import promote
+        report = promote(p)
+        assert report["status"] == "schema_error", report
+        assert report["reason"] == "missing_header", report
+        # 不得生成晋升报告（fail-closed，不写盘）
+        assert not p.with_suffix(".promote-report.json").exists()
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_promote_noop_when_table_header_exists_but_no_rows():
+    """F-04：表头在但无数据行 = 合法 noop（与 schema_error 区分）。"""
+    fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-emptyrows-")
+    import os
+    os.close(fd)
+    p = Path(path)
+    p.write_text(
+        "| Pattern-Key | 首次见 | 复现数 | 状态 | 来源 | 简述 |\n"
+        "|---|---|---|---|---|---|\n",
+        encoding="utf-8",
+    )
+    try:
+        from promoted_checker import promote
+        report = promote(p)
+        assert report["status"] == "noop", report
+        assert report["reason"] == "empty_table", report
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_cli_header_missing_returns_exit_one():
+    """F-04：CLI 层表头缺失必须 exit 1（fail-closed），不得 exit 0。"""
+    import subprocess
+    fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-cli-")
+    import os
+    os.close(fd)
+    p = Path(path)
+    p.write_text("# 无表头正文\n", encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "promoted_checker.py"), "--learnings", str(p)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        assert proc.returncode == 1, f"表头缺失应 exit 1，实际 rc={proc.returncode}\n{proc.stderr}"
+        assert "Pattern-Key" in proc.stderr, "错误应点名缺失的表头"
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_promote_noop_when_no_changes():
+    """无变更时 → status=noop, 不写报告。
+
+    夹具手工构造（形态同上），两测试入口兼容。
+    """
     import os
     fd, path = tempfile.mkstemp(suffix=".md", prefix="learnings-noop-")
     os.close(fd)
@@ -163,5 +206,12 @@ def tmp_learnings_noop():
         "| PK-x-1 | 2026-10-15 | 1 | pending | coder | foo |\n",
         encoding="utf-8",
     )
-    yield p
-    p.unlink(missing_ok=True)
+    try:
+        from promoted_checker import promote
+        report = promote(p)
+        assert report["status"] == "noop"
+        # 无报告落盘
+        report_path = p.with_suffix(".promote-report.json")
+        assert not report_path.exists()
+    finally:
+        p.unlink(missing_ok=True)

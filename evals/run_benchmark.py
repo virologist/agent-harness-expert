@@ -22,7 +22,7 @@
 退出码：
   0 = 所有样本达到期望
   1 = 任意样本未达期望（门禁失败）
-  2 = 跑分过程中脚本/样本异常
+  2 = 样本元数据畸形 / 缺 .md / 脚本或子进程异常（门禁结果不可信）
 """
 from __future__ import annotations
 
@@ -99,36 +99,55 @@ def run(samples_dir: Path, version: str) -> int:
     if not samples_dir.is_dir():
         print(f"samples 目录不存在: {samples_dir}", file=sys.stderr)
         return 2
+    # 样本发现大小写不敏感：T2.JSON 类样本此前被 glob("*.json") 静默忽略
+    sample_paths = sorted(
+        p for p in samples_dir.iterdir()
+        if p.is_file() and p.suffix.lower() == ".json"
+    )
+    if not sample_paths:
+        print(f"[空] {samples_dir} 下没有任何样本元数据（*.json / *.JSON 均计入），门禁结果不可信", file=sys.stderr)
+        return 2
     results = []
     fail = False
+    abnormal = False
     print(f"{'样本':<32} {'kind':<10} {'rc':<4} {'43问':<6} {'未填':<6} {'占位':<6} {'判定':<6}")
     print("-" * 80)
-    for meta_path in sorted(samples_dir.glob("*.json")):
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        doc = meta_path.with_suffix(".md")
-        if not doc.is_file():
-            print(f"[缺] {meta['name']}: 找不到对应 .md", file=sys.stderr)
-            fail = True
+    for meta_path in sample_paths:
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            doc = meta_path.with_suffix(".md")
+            if not doc.is_file():
+                raise FileNotFoundError(f"找不到对应 .md: {doc.name}")
+            # v1.7.2 起按 sample.template 选模板（默认 harness，向后兼容）
+            template = meta.get("template", "harness")
+            actual = _run_check(doc, template=template)
+            exp = meta["expectation"]
+            ok = (
+                actual["exit_code"] == exp.get("exit_code", 0)
+                and actual["coverage"] >= exp.get("min_43q_coverage", 0)
+                and actual["unanswered"] <= exp.get("max_unanswered", 999)
+                and actual["placeholders"] <= exp.get("max_placeholders", 999)
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, OSError, subprocess.TimeoutExpired) as e:
+            name = meta_path.stem
+            print(f"[异常] {name}: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"{name:<32} {'-':<10} {'-':<4} {'-':<6} {'-':<6} {'-':<6} {'ABNORMAL':<6}")
+            results.append({"name": name, "kind": "-", "actual": None,
+                            "expectation": None, "verdict": "ABNORMAL"})
+            abnormal = True
             continue
-        # v1.7.2 起按 sample.template 选模板（默认 harness，向后兼容）
-        template = meta.get("template", "harness")
-        actual = _run_check(doc, template=template)
-        exp = meta["expectation"]
-        ok = (
-            actual["exit_code"] == exp.get("exit_code", 0)
-            and actual["coverage"] >= exp.get("min_43q_coverage", 0)
-            and actual["unanswered"] <= exp.get("max_unanswered", 999)
-            and actual["placeholders"] <= exp.get("max_placeholders", 999)
-        )
         verdict = "PASS" if ok else "FAIL"
         if not ok:
             fail = True
+        # 元数据缺 name/kind 时安全取值，避免表格输出处抛未捕获 KeyError
+        name = meta.get("name", "<未知>")
+        kind = meta.get("kind", "<未知>")
         print(
-            f"{meta['name']:<32} {meta['kind']:<10} "
+            f"{name:<32} {kind:<10} "
             f"{actual['exit_code']:<4} {actual['coverage']}/{actual['total']:<3} "
             f"{actual['unanswered']:<6} {actual['placeholders']:<6} {verdict:<6}"
         )
-        results.append({"name": meta["name"], "kind": meta["kind"], "actual": actual, "expectation": exp, "verdict": verdict})
+        results.append({"name": name, "kind": kind, "actual": actual, "expectation": exp, "verdict": verdict})
     # 落盘（P2-6 收尾：safe_mkdir 兼容 WorkBuddy 沙箱会拦 mkdir(exist_ok=True) 误报 EEXIST）
     try:
         RESULTS_DIR.mkdir(parents=True)
@@ -145,6 +164,8 @@ def run(samples_dir: Path, version: str) -> int:
     }
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n结果已落盘: {out_path}")
+    if abnormal:
+        return 2
     return 0 if not fail else 1
 
 

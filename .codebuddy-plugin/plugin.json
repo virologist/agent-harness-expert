@@ -1,7 +1,7 @@
 {
   "name": "agent-harness-expert",
-  "version": "1.8.1",
-  "description": "An engineering team of eight specialists that turns ideas into deployable agents through a staged R&D pipeline, with runtime reliability guards, release engineering, consistency audit, acceptance review and a self-evolving knowledge base.",
+  "version": "1.8.2",
+  "description": "An engineering team of nine specialists that turns ideas into deployable agents through a staged R&D pipeline, with runtime reliability guards, release engineering, consistency audit, acceptance review and a self-evolving knowledge base.",
   "author": {
     "name": "hanli",
     "email": "hanli@example.com"
@@ -12,6 +12,7 @@
     "./agents/agent-harness-architect.md",
     "./agents/agent-harness-coder.md",
     "./agents/agent-harness-tester.md",
+    "./agents/agent-harness-curator.md",
     "./agents/agent-harness-release-engineer.md",
     "./agents/agent-harness-reliability-engineer.md",
     "./agents/agent-harness-consistency-auditor.md",
@@ -32,6 +33,7 @@
       "agent-harness-architect",
       "agent-harness-coder",
       "agent-harness-tester",
+      "agent-harness-curator",
       "agent-harness-release-engineer",
       "agent-harness-reliability-engineer",
       "agent-harness-consistency-auditor",
@@ -47,8 +49,8 @@
     "zh": "Agent Harness 专家团"
   },
   "displayDescription": {
-    "en": "An engineering team of eight specialists with a lightweight fast track and a staged R&D pipeline, covering runtime guards, release engineering, consistency audit and value review.",
-    "zh": "Agent 工程研发团队：八成员分阶段流水线，含可靠性守护、发布运维、一致性审计与验收评审。"
+    "en": "An engineering team of nine specialists with a lightweight fast track and a staged R&D pipeline, covering runtime guards, release engineering, consistency audit and value review.",
+    "zh": "Agent 工程研发团队：九成员分阶段流水线，含可靠性守护、发布运维、一致性审计与验收评审。"
   },
   "avatar": "avatars/team.png",
   "categoryId": "02-Engineering",
@@ -150,6 +152,15 @@
       },
       "avatar": "avatars/agent-harness-tester.png",
       "role": "member"
+    },
+    {
+      "id": "agent-harness-curator",
+      "name": {
+        "en": "Knowledge Curator",
+        "zh": "知识策展人"
+      },
+      "role": "member",
+      "avatar": "avatars/agent-harness-curator.png"
     },
     {
       "id": "agent-harness-release-engineer",

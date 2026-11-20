@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import uuid
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,9 +28,27 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _root import detect_wiki_root, normalize_path, safe_mkdir
+from _root import safe_mkdir, _resolve_root
 
-DEFAULT_ROOT = detect_wiki_root()
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """F-09：唯一 tmp 名 + replace 原子写，避免中断留半截文件。"""
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+# 缺省根延迟到 parse_args 之后探测：模块顶层调 detect_wiki_root() 会在
+# team 模式（WORKBUDDY_CONTEXT=team）+ cwd 无项目标记时抛 RuntimeError，
+# 导致 `--help` 都无法运行（import 时即崩溃）。
+DEFAULT_ROOT = None
 
 SCHEMA_TEMPLATE = """---
 schema_version: v1
@@ -99,11 +119,11 @@ def _write_derived_empty(wiki_dir: Path, force: bool) -> None:
     """重置派生产物（可再生）：index.md 与三个 json。force 时强制重置为初始空值。"""
     index_path = wiki_dir / "index.md"
     if force or not index_path.exists():
-        index_path.write_text(EMPTY_INDEX, encoding="utf-8")
+        atomic_write_text(index_path, EMPTY_INDEX)
     for name, default in EMPTY_META:
         p = wiki_dir / name
         if force or not p.exists():
-            p.write_text(json.dumps(default, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_text(p, json.dumps(default, ensure_ascii=False, indent=2))
     # topics/ 目录本身保留；旧索引由 build_index 刷新，init 不清理用户已建页的索引
     safe_mkdir(wiki_dir / "topics")
     safe_mkdir(wiki_dir / "pages")
@@ -124,13 +144,13 @@ def init_wiki(root: Path, force: bool = False, reset_schema: bool = False) -> di
     schema_action = "created"
     schema_backup = None
     if not schema_path.exists():
-        schema_path.write_text(SCHEMA_TEMPLATE, encoding="utf-8")
+        atomic_write_text(schema_path, SCHEMA_TEMPLATE)
         schema_action = "created"
     elif reset_schema:
         backup = wiki_dir / "SCHEMA.md.bak"
-        backup.write_text(schema_path.read_text(encoding="utf-8"), encoding="utf-8")
+        atomic_write_text(backup, schema_path.read_text(encoding="utf-8"))
         schema_backup = str(backup)
-        schema_path.write_text(SCHEMA_TEMPLATE, encoding="utf-8")
+        atomic_write_text(schema_path, SCHEMA_TEMPLATE)
         schema_action = "reset-with-backup"
     else:
         schema_action = "preserved"     # 即使 --force 也不覆盖用户 SCHEMA
@@ -162,14 +182,27 @@ def init_wiki(root: Path, force: bool = False, reset_schema: bool = False) -> di
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="初始化 wiki 骨架（保护用户 SCHEMA）")
-    parser.add_argument("--root", default=str(DEFAULT_ROOT), help="wiki 根目录")
+    parser.add_argument("--root", default=None, help="wiki 根目录")
     parser.add_argument("--force", action="store_true",
                         help="重置可再生派生产物（index/topics/json）；不触碰 SCHEMA 与 pages")
     parser.add_argument("--reset-schema", action="store_true",
                         help="用模板覆盖 SCHEMA.md（覆盖前自动备份为 SCHEMA.md.bak）")
     args = parser.parse_args()
 
-    result = init_wiki(normalize_path(args.root), force=args.force, reset_schema=args.reset_schema)
+    try:
+        root = _resolve_root(args.root)
+    except RuntimeError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+
+    # P2-1：wiki/raw/--root 为普通文件时 safe_mkdir 抛 OSError，
+    # 统一输出结构化 JSON 错误（与其它脚本一致），不留裸 traceback。
+    try:
+        result = init_wiki(root, force=args.force, reset_schema=args.reset_schema)
+    except OSError as e:
+        print(json.dumps({"status": "error", "error": f"wiki 目录初始化失败（路径为普通文件或不可写）: {e}"},
+                         ensure_ascii=False), file=sys.stderr)
+        return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] in ("created", "exists", "forced") else 1
 
